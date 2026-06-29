@@ -113,10 +113,60 @@ app.get('/api/tags', async (req, res) => {
       throw new Error(`Ollama returned status ${response.status}`);
     }
     const data = await response.json();
-    const modelNames = data.models?.map((m: any) => m.name) || [];
-    return res.json({ models: modelNames });
+    return res.json({ models: data.models || [], raw: data });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// Proxy Ollama pull endpoint to download new models
+app.post('/api/pull', async (req, res) => {
+  const { name, ollamaUrl = 'http://localhost:11434' } = req.body;
+  if (!name) {
+    return res.status(400).json({ error: 'Model name is required' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  try {
+    const response = await fetch(`${ollamaUrl}/api/pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, stream: true }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Ollama returned status ${response.status}`);
+    }
+
+    if (!response.body) {
+      throw new Error('Ollama response body is empty');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        res.write(`data: ${line}\n\n`);
+      }
+    }
+    return res.end();
+  } catch (err: any) {
+    console.error('Error in pull proxy:', err);
+    res.write(`data: ${JSON.stringify({ status: 'error', error: err.message })}\n\n`);
+    return res.end();
   }
 });
 
@@ -159,9 +209,9 @@ app.post('/api/chat', async (req, res) => {
       // Map Ollama / Generic models to correct Gemini models
       // User requested models: Planner: qwen3:4b, Coder: qwen2.5-coder:14b, Reviewer: llama3.1:8b, Researcher: llama3.1:8b
       // We map them to appropriate high-quality Gemini models:
-      let mappedModel = 'gemini-3.5-flash';
+      let mappedModel = 'gemini-2.5-flash';
       if (model?.toLowerCase().includes('coder') || model?.toLowerCase().includes('14b') || model?.toLowerCase().includes('pro')) {
-        mappedModel = 'gemini-3.1-pro-preview'; // Premium coder reasoning
+        mappedModel = 'gemini-2.5-pro'; // Premium coder reasoning
       }
 
       // Convert messages to GoogleGenAI formats
