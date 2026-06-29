@@ -13,17 +13,23 @@ export function ModelHub({ models, ollamaUrl, onClose, onRefresh }: ModelHubProp
   const [pullModelName, setPullModelName] = useState('');
   const [pullProgress, setPullProgress] = useState<{ status: string, digest?: string, total?: number, completed?: number } | null>(null);
   const [isPulling, setIsPulling] = useState(false);
+  const [pullController, setPullController] = useState<AbortController | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const handlePull = async () => {
     if (!pullModelName.trim()) return;
     setIsPulling(true);
     setPullProgress({ status: 'Initiating pull...' });
+    
+    const controller = new AbortController();
+    setPullController(controller);
 
     try {
       const response = await fetch('/api/pull', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: pullModelName, ollamaUrl }),
+        signal: controller.signal,
       });
 
       if (!response.ok) throw new Error('Pull request failed');
@@ -52,6 +58,7 @@ export function ModelHub({ models, ollamaUrl, onClose, onRefresh }: ModelHubProp
                  setPullProgress(null);
                  setIsPulling(false);
                  setPullModelName('');
+                 setPullController(null);
                  onRefresh();
                }, 2000);
             }
@@ -61,8 +68,20 @@ export function ModelHub({ models, ollamaUrl, onClose, onRefresh }: ModelHubProp
         }
       }
     } catch (err: any) {
-      setPullProgress({ status: `Error: ${err.message}` });
+      if (err.name === 'AbortError') {
+         setPullProgress({ status: 'Pull cancelled by user.' });
+         setTimeout(() => setPullProgress(null), 3000);
+      } else {
+         setPullProgress({ status: `Error: ${err.message}` });
+      }
       setIsPulling(false);
+      setPullController(null);
+    }
+  };
+
+  const handleCancelPull = () => {
+    if (pullController) {
+      pullController.abort();
     }
   };
 
@@ -73,6 +92,8 @@ export function ModelHub({ models, ollamaUrl, onClose, onRefresh }: ModelHubProp
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
+
+  const filteredModels = models.filter(m => m.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -95,27 +116,50 @@ export function ModelHub({ models, ollamaUrl, onClose, onRefresh }: ModelHubProp
           
           {/* Pull Section */}
           <div className="bg-[#050a08] border border-emerald-900/50 rounded-lg p-4">
-            <h3 className="text-emerald-400 font-mono text-sm font-bold mb-3 flex items-center gap-2">
-              <Download size={16} /> Pull New Model
-            </h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-emerald-400 font-mono text-sm font-bold flex items-center gap-2">
+                <Download size={16} /> Pull New Model
+              </h3>
+              <div className="flex gap-2">
+                <a href="https://ollama.com/library" target="_blank" rel="noopener noreferrer" className="text-[10px] bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 px-2 py-1 rounded flex items-center gap-1 transition-colors">
+                  <Search size={10} /> Search Ollama
+                </a>
+                <a href="https://huggingface.co/models?search=gguf" target="_blank" rel="noopener noreferrer" className="text-[10px] bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 px-2 py-1 rounded flex items-center gap-1 transition-colors">
+                  <Search size={10} /> Search Hugging Face
+                </a>
+              </div>
+            </div>
             <div className="flex flex-col md:flex-row gap-3">
               <input
                 type="text"
-                placeholder="e.g., llama3.2, mistral, qwen2.5-coder:7b"
+                placeholder="e.g., llama3.2, hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF"
                 value={pullModelName}
                 onChange={(e) => setPullModelName(e.target.value)}
                 disabled={isPulling}
                 className="flex-1 bg-[#0a0f0c] border border-emerald-900/60 rounded px-3 py-2 text-emerald-300 font-mono text-sm focus:outline-none focus:border-[#00ff66]/50 placeholder-emerald-800"
               />
-              <button
-                onClick={handlePull}
-                disabled={isPulling || !pullModelName.trim()}
-                className="bg-[#00ff66]/10 hover:bg-[#00ff66]/20 text-[#00ff66] border border-[#00ff66]/30 px-4 py-2 rounded font-mono text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {isPulling ? <div className="w-4 h-4 border-2 border-[#00ff66]/30 border-t-[#00ff66] rounded-full animate-spin" /> : <Download size={16} />}
-                {isPulling ? 'PULLING...' : 'PULL'}
-              </button>
+              {isPulling ? (
+                <button
+                  onClick={handleCancelPull}
+                  className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 border border-rose-500/30 px-4 py-2 rounded font-mono text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                >
+                  <div className="w-4 h-4 border-2 border-rose-500/30 border-t-rose-500 rounded-full animate-spin" />
+                  CANCEL PULL
+                </button>
+              ) : (
+                <button
+                  onClick={handlePull}
+                  disabled={!pullModelName.trim()}
+                  className="bg-[#00ff66]/10 hover:bg-[#00ff66]/20 text-[#00ff66] border border-[#00ff66]/30 px-4 py-2 rounded font-mono text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <Download size={16} />
+                  PULL
+                </button>
+              )}
             </div>
+            <p className="text-[10px] text-emerald-500/50 font-mono mt-2 flex items-center gap-1">
+              <Info size={10} /> Supports Ollama tags and Hugging Face GGUF URLs (e.g. hf.co/user/repo)
+            </p>
             
             {/* Progress */}
             {pullProgress && (
@@ -147,17 +191,33 @@ export function ModelHub({ models, ollamaUrl, onClose, onRefresh }: ModelHubProp
 
           {/* List Section */}
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-emerald-400 font-mono text-sm font-bold flex items-center gap-2">
+            <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
+              <h3 className="text-emerald-400 font-mono text-sm font-bold flex items-center gap-2 whitespace-nowrap">
                 <HardDrive size={16} /> Installed Models ({models.length})
               </h3>
-              <button onClick={onRefresh} className="text-emerald-500 hover:text-[#00ff66] transition-colors flex items-center gap-1 text-xs font-mono">
-                <Search size={14} /> Refresh List
-              </button>
+              
+              <div className="flex items-center gap-3 flex-1 min-w-[200px] justify-end">
+                <div className="relative flex-1 max-w-xs">
+                  <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
+                    <Search size={14} className="text-emerald-600" />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search installed models..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-[#050a08] border border-emerald-900/50 rounded-lg pl-8 pr-3 py-1.5 text-emerald-300 font-mono text-xs focus:outline-none focus:border-[#00ff66]/50 placeholder-emerald-800/70"
+                  />
+                </div>
+                
+                <button onClick={onRefresh} className="text-emerald-500 hover:text-[#00ff66] transition-colors flex items-center gap-1 text-xs font-mono whitespace-nowrap bg-emerald-950/30 px-3 py-1.5 rounded-lg border border-emerald-900/30">
+                  <Server size={14} /> Refresh
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {models.map((model) => (
+              {filteredModels.map((model) => (
                 <div key={model.name} className="bg-[#0a0f0c] border border-emerald-900/40 hover:border-[#00ff66]/30 transition-colors rounded-lg p-4 relative group">
                   <div className="flex justify-between items-start mb-2">
                     <h4 className="font-mono font-bold text-emerald-300 text-lg truncate pr-8">{model.name}</h4>

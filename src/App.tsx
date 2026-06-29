@@ -32,13 +32,33 @@ import {
   X,
   Palette,
   Server,
-  Mail
+  Mail,
+  MessageSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Workflow
 } from 'lucide-react';
+import { SidebarProvider, Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarHeader, SidebarFooter, SidebarTrigger } from '../components/ui/sidebar';
 import { ModelHub } from './components/ModelHub';
 import { MailIntegration } from './components/MailIntegration';
 import { Agent, AgentId, PipelineNode, Message, MemoryItem, OllamaModelInfo } from './types';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '../components/ui/select';
 import Markdown from 'react-markdown';
+import { useSidebar } from '../components/ui/sidebar';
+
+function CustomSidebarTrigger() {
+  const { toggleSidebar } = useSidebar();
+  return (
+    <SidebarMenuButton 
+      onClick={toggleSidebar}
+      tooltip="Execution Pipeline Graph"
+      className="text-emerald-600 hover:text-emerald-400 hover:bg-[#10b981]/5 transition-colors"
+    >
+      <Workflow size={18} />
+      <span>Pipeline Graph</span>
+    </SidebarMenuButton>
+  );
+}
 import remarkGfm from 'remark-gfm';
 
 // 128-dimensional local vector hashing helper
@@ -165,15 +185,30 @@ function CodeDiffViewer({ oldCode, newCode, title }: { oldCode: string, newCode:
 
 export default function App() {
   // Config state
-  const [engine, setEngine] = useState<'gemini' | 'ollama'>('gemini');
+  const [engine, setEngine] = useState<'gemini' | 'ollama' | 'openai' | 'openrouter'>('gemini');
+  const [cloudApiKey, setCloudApiKey] = useState<string>(localStorage.getItem('joelos_cloud_api_key') || '');
   const [ollamaUrl, setOllamaUrl] = useState<string>('http://localhost:11434');
   const [searchGrounding, setSearchGrounding] = useState<boolean>(true);
   
   // Custom Model configuration state (using real, standard local models)
-  const [plannerModel, setPlannerModel] = useState<string>('llama3.2');
-  const [coderModel, setCoderModel] = useState<string>('qwen2.5-coder:7b');
-  const [reviewerModel, setReviewerModel] = useState<string>('llama3.2');
-  const [researcherModel, setResearcherModel] = useState<string>('llama3.2');
+  const [agentModels, setAgentModels] = useState<Record<AgentId, string>>(() => {
+    const stored = localStorage.getItem('joelos_agent_models');
+    if (stored) return JSON.parse(stored);
+    return {
+      cortana: 'llama3.2',
+      jarvis: 'llama3.2',
+      aura: 'llama3.2',
+      boss: 'llama3.2',
+      cash: 'llama3.2',
+      forge: 'llama3.2',
+      titan: 'llama3.2',
+      memory: 'llama3.2',
+      researcher: 'llama3.2',
+      planner: 'llama3.2',
+      coder: 'qwen2.5-coder:7b',
+      reviewer: 'llama3.2'
+    };
+  });
 
   // Ollama Connection and Installed Models state
   const [ollamaConnectionStatus, setOllamaConnectionStatus] = useState<'unchecked' | 'connected' | 'failed'>('unchecked');
@@ -193,6 +228,7 @@ export default function App() {
   // Interactive controls
   const [userPrompt, setUserPrompt] = useState<string>('');
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
   const [activeTab, setActiveTab] = useState<'pipeline' | 'settings' | 'about' | 'mail'>('pipeline');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isMemorySearching, setIsMemorySearching] = useState<boolean>(false);
@@ -211,7 +247,117 @@ export default function App() {
   });
   const [chatTab, setChatTab] = useState<'global' | 'private'>('global');
   const [privateAgentId, setPrivateAgentId] = useState<AgentId>('cortana');
-  const [uptime, setUptime] = useState('00h 00m 00s');
+  const [privateMessages, setPrivateMessages] = useState<Record<string, Message[]>>({
+    cortana: [],
+    jarvis: [],
+    aura: [],
+    boss: [],
+    cash: [],
+    forge: [],
+    titan: [],
+    memory: [],
+    researcher: [],
+    planner: [],
+    coder: [],
+    reviewer: [],
+  });
+  const [privateIsSending, setPrivateIsSending] = useState(false);
+
+  const sendPrivateMessage = async () => {
+    if (!userPrompt.trim()) return;
+    if (privateIsSending) return;
+    
+    const text = userPrompt.trim();
+    setUserPrompt('');
+    setPrivateIsSending(true);
+
+    const agentId = privateAgentId;
+    const userMsg: Message = {
+      id: 'private-user-' + Date.now(),
+      sender: 'user',
+      text,
+      timestamp: new Date().toLocaleTimeString(),
+    };
+
+    setPrivateMessages(prev => ({
+      ...prev,
+      [agentId]: [...(prev[agentId] || []), userMsg]
+    }));
+
+    let systemInst = systemInstructions[agentId] || '';
+    systemInst += ` IMPORTANT DIRECT DIRECTIVE: You are in a direct 1-on-1 private chat with the user. Answer the user directly, provide helpful technical facts, specifications, code guidelines, or direct answers. Do NOT delegate tasks or output a delegation sequence like "DELEGATION SEQUENCE" or "1. BOSS...".`;
+    let activeModel = 'gemini-2.5-flash';
+    if (engine !== 'gemini') {
+      activeModel = agentModels[agentId] || 'llama3.2';
+    }
+
+    const botMsgId = 'private-bot-' + Date.now();
+    const botMsgPlaceholder: Message = {
+      id: botMsgId,
+      sender: agentId,
+      text: '...',
+      timestamp: new Date().toLocaleTimeString(),
+      isStreaming: true,
+    };
+
+    setPrivateMessages(prev => ({
+      ...prev,
+      [agentId]: [...(prev[agentId] || []), botMsgPlaceholder]
+    }));
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          engine,
+          model: activeModel,
+          messages: [{ role: 'user', content: text }],
+          systemInstruction: systemInst,
+          stream: false,
+          ollamaUrl,
+          cloudApiKey,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Private chat failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+      const botResponseText = data.text || 'No response returned.';
+
+      setPrivateMessages(prev => ({
+        ...prev,
+        [agentId]: (prev[agentId] || []).map(m => m.id === botMsgId ? {
+          ...m,
+          text: botResponseText,
+          isStreaming: false,
+        } : m)
+      }));
+
+      // Increment task count for private agents
+      setAgents(prev => {
+        const next = prev.map(a => a.id === agentId ? { ...a, taskCount: a.taskCount + 1 } : a);
+        const counts = next.reduce((acc, a) => ({ ...acc, [a.id]: a.taskCount }), {});
+        localStorage.setItem('joelos_agent_task_counts', JSON.stringify(counts));
+        return next;
+      });
+
+    } catch (err: any) {
+      console.error('Private send fail:', err);
+      setPrivateMessages(prev => ({
+        ...prev,
+        [agentId]: (prev[agentId] || []).map(m => m.id === botMsgId ? {
+          ...m,
+          text: `Error calling agent: ${err.message || err}`,
+          isStreaming: false,
+        } : m)
+      }));
+    } finally {
+      setPrivateIsSending(false);
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem('joelos_gemini_input_tokens', geminiInputTokens.toString());
@@ -221,17 +367,6 @@ export default function App() {
     localStorage.setItem('joelos_gemini_output_tokens', geminiOutputTokens.toString());
   }, [geminiOutputTokens]);
 
-  useEffect(() => {
-    const startTime = Date.now();
-    const interval = setInterval(() => {
-      const diff = Date.now() - startTime;
-      const hrs = Math.floor(diff / 3600000).toString().padStart(2, '0');
-      const mins = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
-      const secs = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
-      setUptime(`${hrs}h ${mins}m ${secs}s`);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
   const [timingsHistory, setTimingsHistory] = useState<Array<{ timestamp: string; cortana: number; jarvis: number; aura: number; boss: number; cash: number; forge: number; titan: number }>>(() => {
     const saved = localStorage.getItem('joelos_timings_history_v2');
     return saved ? JSON.parse(saved) : [
@@ -247,6 +382,7 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [shortcutsOpen, setShortcutsOpen] = useState<boolean>(false);
   const [isMemoryDrawerOpen, setIsMemoryDrawerOpen] = useState<boolean>(false);
+  const [isPipelineDrawerOpen, setIsPipelineDrawerOpen] = useState<boolean>(false);
   const pipelineAbortedRef = useRef<boolean>(false);
   const [agentTimings, setAgentTimings] = useState<Record<string, string>>({});
   const [agentTokens, setAgentTokens] = useState<Record<string, number>>({});
@@ -313,39 +449,6 @@ export default function App() {
     }
   };
 
-  // Export chat as formatted Markdown file
-  const exportChatAsMarkdown = () => {
-    try {
-      let md = `# JoelOS Workspace Export\n`;
-      md += `*Generated on: ${new Date().toLocaleString()}*\n`;
-      md += `*Engine Mode: ${engine.toUpperCase()}*\n\n`;
-      md += `---\n\n`;
-
-      messages.forEach(msg => {
-        const senderName = msg.sender === 'user' ? '👤 USER' :
-                           msg.sender === 'planner' ? '🧠 PLANNER' :
-                           msg.sender === 'coder' ? '💻 CODER' :
-                           msg.sender === 'reviewer' ? '🔍 REVIEWER' :
-                           msg.sender === 'researcher' ? '🌐 RESEARCHER' :
-                           msg.sender === 'memory' ? '📚 MEMORY SYSTEM' : '⚙️ SYSTEM';
-        md += `### ${senderName} (${msg.timestamp})\n\n`;
-        md += `${msg.text}\n\n`;
-        md += `---\n\n`;
-      });
-
-      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `joelos_chat_${Date.now()}.md`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (e) {
-      console.error('Failed to export markdown', e);
-    }
-  };
-
   useEffect(() => {
     localStorage.setItem('joelos_theme', theme);
   }, [theme]);
@@ -369,6 +472,9 @@ export default function App() {
       if (e.key === 'Escape') {
         setShortcutsOpen(false);
         setIsMemoryDrawerOpen(false);
+        setIsPipelineDrawerOpen(false);
+        setMobileMenuOpen(false);
+        setShowModelHub(false);
       }
 
       // Ignore if user is inside input, textarea, or select fields for other shortcuts
@@ -420,7 +526,11 @@ export default function App() {
       cash: true,
       forge: true,
       titan: true,
-      memory: true
+      memory: true,
+      researcher: true,
+      planner: true,
+      coder: true,
+      reviewer: true
     };
     const savedTaskCounts = localStorage.getItem('joelos_agent_task_counts');
     const taskCountsMap = savedTaskCounts ? JSON.parse(savedTaskCounts) : {};
@@ -520,6 +630,54 @@ export default function App() {
         enabled: enabledMap.memory !== false,
         taskCount: taskCountsMap.memory || 0,
         color: '#a78bfa',
+      },
+      {
+        id: 'researcher',
+        name: 'Researcher',
+        icon: '🌐',
+        dotColor: 'bg-blue-500 shadow-blue-500/50 text-blue-400 border-blue-500/20',
+        model: 'gemini-2.5-flash',
+        description: 'Conducts deep technical analysis, pulls libraries, APIs, and guidelines.',
+        status: 'idle',
+        enabled: enabledMap.researcher !== false,
+        taskCount: taskCountsMap.researcher || 0,
+        color: '#3b82f6',
+      },
+      {
+        id: 'planner',
+        name: 'Planner',
+        icon: '📋',
+        dotColor: 'bg-amber-500 shadow-amber-500/50 text-amber-400 border-amber-500/20',
+        model: 'gemini-2.5-flash',
+        description: 'Formulates step-by-step blueprints, layout design, and data schemas.',
+        status: 'idle',
+        enabled: enabledMap.planner !== false,
+        taskCount: taskCountsMap.planner || 0,
+        color: '#f59e0b',
+      },
+      {
+        id: 'coder',
+        name: 'Coder',
+        icon: '💻',
+        dotColor: 'bg-emerald-500 shadow-emerald-500/50 text-emerald-400 border-emerald-500/20',
+        model: 'gemini-2.5-pro',
+        description: 'Generates optimized React, TypeScript, and Tailwind CSS codebases.',
+        status: 'idle',
+        enabled: enabledMap.coder !== false,
+        taskCount: taskCountsMap.coder || 0,
+        color: '#10b981',
+      },
+      {
+        id: 'reviewer',
+        name: 'Reviewer',
+        icon: '🔍',
+        dotColor: 'bg-pink-500 shadow-pink-500/50 text-pink-400 border-pink-500/20',
+        model: 'gemini-2.5-flash',
+        description: 'Audits code quality, rendering, performance, and responsive layout.',
+        status: 'idle',
+        enabled: enabledMap.reviewer !== false,
+        taskCount: taskCountsMap.reviewer || 0,
+        color: '#ec4899',
       }
     ];
   });
@@ -626,61 +784,75 @@ export default function App() {
       const coderOption = installedOllamaModels.find(m => m.toLowerCase().includes('coder')) || installedOllamaModels[0];
       const generalOption = installedOllamaModels.find(m => m.toLowerCase().includes('llama3.2') || m.toLowerCase().includes('llama3') || m.toLowerCase().includes('qwen')) || installedOllamaModels[0];
       
-      setPlannerModel(prev => installedOllamaModels.includes(prev) ? prev : generalOption);
-      setCoderModel(prev => installedOllamaModels.includes(prev) ? prev : coderOption);
-      setReviewerModel(prev => installedOllamaModels.includes(prev) ? prev : generalOption);
-      setResearcherModel(prev => installedOllamaModels.includes(prev) ? prev : generalOption);
+      setAgentModels(prev => {
+        const next = { ...prev };
+        Object.keys(next).forEach(key => {
+          if (!installedOllamaModels.includes(next[key as AgentId])) {
+            next[key as AgentId] = key === 'coder' ? coderOption : generalOption;
+          }
+        });
+        localStorage.setItem('joelos_agent_models', JSON.stringify(next));
+        return next;
+      });
     }
   }, [ollamaConnectionStatus, installedOllamaModels]);
 
   // Sync Agent configs in states
   useEffect(() => {
     setAgents(prev => prev.map(agent => {
-      if (agent.id === 'planner') return { ...agent, model: engine === 'gemini' ? 'gemini-2.5-flash' : plannerModel };
-      if (agent.id === 'coder') return { ...agent, model: engine === 'gemini' ? 'gemini-2.5-pro' : coderModel };
-      if (agent.id === 'reviewer') return { ...agent, model: engine === 'gemini' ? 'gemini-2.5-flash' : reviewerModel };
-      if (agent.id === 'researcher') return { ...agent, model: engine === 'gemini' ? 'gemini-2.5-flash' : researcherModel };
-      return agent;
-    }));
-  }, [engine, plannerModel, coderModel, reviewerModel, researcherModel]);
-
-  // Load memories from localStorage on startup
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem('joelos_memories');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setMemories(parsed);
-        setMatchedMemories(parsed.slice(0, 10)); // default recent
+      let newModel = '';
+      if (engine === 'gemini') {
+        newModel = agent.id === 'coder' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
       } else {
-        // Seed some sample memories
-        const seeds: MemoryItem[] = [
-          {
-            id: 'seed-1',
-            title: 'Worship Media Database Architecture',
-            summary: 'A relational model for storing slide decks, lyric sheets, and audio stems with tag-based filters.',
-            snippet: 'CREATE TABLE songs (id UUID, title TEXT, lyrics TEXT, key CHAR(2));',
-            tags: ['sql', 'database', 'media'],
-            embedding: getLocalEmbeddingVector('Worship Media Database Architecture with postgresql CREATE TABLE songs'),
-            timestamp: new Date(Date.now() - 3600000 * 24 * 3).toLocaleString(),
-          },
-          {
-            id: 'seed-2',
-            title: 'Realtime WebSocket Audio Streaming Engine',
-            summary: 'Node.js event controller to feed microphone audio chunks to audio processors with low latency.',
-            snippet: 'const wss = new WebSocketServer({ port: 8080 });',
-            tags: ['websockets', 'audio', 'node'],
-            embedding: getLocalEmbeddingVector('Realtime WebSocket Audio Streaming Engine with ws and raw PCM audio streams'),
-            timestamp: new Date(Date.now() - 3600000 * 2).toLocaleString(),
-          }
-        ];
-        localStorage.setItem('joelos_memories', JSON.stringify(seeds));
-        setMemories(seeds);
-        setMatchedMemories(seeds);
+        newModel = agentModels[agent.id] || 'llama3.2';
       }
-    } catch (e) {
-      console.error('Error loading localStorage memories', e);
-    }
+      return { ...agent, model: newModel };
+    }));
+  }, [engine, agentModels]);
+
+  // Load memories from backend on startup
+  useEffect(() => {
+    fetch('/api/memory')
+      .then(r => r.json())
+      .then(data => {
+        if (data && data.length > 0) {
+          setMemories(data);
+          setMatchedMemories(data.slice(0, 10)); // default recent
+        } else {
+          // Seed some sample memories
+          const seeds: MemoryItem[] = [
+            {
+              id: 'seed-1',
+              title: 'Worship Media Database Architecture',
+              summary: 'A relational model for storing slide decks, lyric sheets, and audio stems with tag-based filters.',
+              snippet: 'CREATE TABLE songs (id UUID, title TEXT, lyrics TEXT, key CHAR(2));',
+              tags: ['sql', 'database', 'media'],
+              embedding: getLocalEmbeddingVector('Worship Media Database Architecture with postgresql CREATE TABLE songs'),
+              timestamp: new Date(Date.now() - 3600000 * 24 * 3).toLocaleString(),
+            },
+            {
+              id: 'seed-2',
+              title: 'Realtime WebSocket Audio Streaming Engine',
+              summary: 'Node.js event controller to feed microphone audio chunks to audio processors with low latency.',
+              snippet: 'const wss = new WebSocketServer({ port: 8080 });',
+              tags: ['websockets', 'audio', 'node'],
+              embedding: getLocalEmbeddingVector('Realtime WebSocket Audio Streaming Engine with ws and raw PCM audio streams'),
+              timestamp: new Date(Date.now() - 3600000 * 2).toLocaleString(),
+            }
+          ];
+          // Save seeds to database
+          fetch('/api/memory', {
+            method: 'POST',
+            body: JSON.stringify({ items: seeds }),
+            headers: { 'Content-Type': 'application/json' }
+          }).catch(err => console.error('Error saving seeds:', err));
+          setMemories(seeds);
+          setMatchedMemories(seeds);
+        }
+      })
+      .catch(e => {
+        console.error('Error loading backend memories, falling back to empty list', e);
+      });
   }, []);
 
   // Health check on backend server
@@ -929,6 +1101,34 @@ export default function App() {
       return agent ? agent.enabled !== false : true;
     };
 
+    const callAgent = async (agentId: AgentId, prompt: string): Promise<string> => {
+      const systemInst = systemInstructions[agentId] || '';
+      let activeModel = 'gemini-2.5-flash';
+      if (engine !== 'gemini') {
+        activeModel = agentModels[agentId] || 'llama3.2';
+      }
+      
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          engine,
+          model: activeModel,
+          messages: [{ role: 'user', content: prompt }],
+          systemInstruction: systemInst,
+          stream: false,
+          ollamaUrl,
+          cloudApiKey,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Agent ${agentId} call failed with HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      return data.text || '';
+    };
+
     pipelineAbortedRef.current = false;
     let targetQuery = '';
     
@@ -998,6 +1198,92 @@ export default function App() {
     let coderDuration = 0;
     let reviewerDuration = 0;
 
+    // --- STEP 0: CORTANA ORCHESTRATION ---
+    let selectedAgentsList = ['researcher', 'planner', 'coder', 'reviewer'];
+    let cortanaRationale = 'Executing full-suite multi-agent system deployment pipeline.';
+    let cortanaDuration = 0;
+
+    if (pipelineAbortedRef.current) return;
+    if (isEnabled('cortana')) {
+      const cortanaStartTime = Date.now();
+      setAgents(prev => prev.map(a => a.id === 'cortana' ? { ...a, status: 'thinking' } : a));
+      setPipelineNodes(nodes => nodes.map(n => n.id === 'cortana' ? { ...n, status: 'active' } : n));
+
+      const cortanaMsgId = 'cortana-' + Date.now();
+      setMessages(prev => [...prev, {
+        id: cortanaMsgId,
+        sender: 'cortana',
+        text: 'Analyzing request specifications and dynamically routing execution pipeline...',
+        timestamp: new Date().toLocaleTimeString(),
+        isStreaming: true,
+      }]);
+
+      try {
+        const cortanaPlan = await callAgent('cortana', `
+          The user wants: "${targetQuery}"
+          You are the orchestrator. Decide which agents should run and in which order.
+          Available agents: researcher, planner, coder, reviewer
+          Respond ONLY with valid JSON: { "agents": ["researcher", "planner", "coder", "reviewer"], "rationale": "..." }
+          If the task is conversational (not coding), respond: { "agents": ["researcher"], "rationale": "..." }
+        `);
+
+        let cleanPlan = cortanaPlan.trim();
+        if (cleanPlan.startsWith('```')) {
+          cleanPlan = cleanPlan.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+        }
+
+        try {
+          const parsed = JSON.parse(cleanPlan);
+          if (parsed && Array.isArray(parsed.agents)) {
+            selectedAgentsList = parsed.agents;
+            cortanaRationale = parsed.rationale || cortanaRationale;
+          }
+        } catch (jsonErr) {
+          console.error('Failed to parse Cortana plan JSON, using default agents:', jsonErr, 'Raw:', cortanaPlan);
+        }
+
+        setMessages(prev => prev.map(m => m.id === cortanaMsgId ? {
+          ...m,
+          text: `[Orchestrator Decision]\nSelected Path: [${selectedAgentsList.join(' → ')}]\nRationale: ${cortanaRationale}`,
+          isStreaming: false,
+          rawOutput: cortanaPlan
+        } : m));
+
+        setNodeContexts(prev => ({
+          ...prev,
+          cortana: {
+            input: `Orchestrate: "${targetQuery}"`,
+            output: `Selected Path: ${JSON.stringify(selectedAgentsList)}\nRationale: ${cortanaRationale}`,
+            timestamp: new Date().toLocaleTimeString(),
+            model: engine === 'gemini' ? 'gemini-2.5-flash' : 'llama3.2'
+          }
+        }));
+
+        const durationStr = ((Date.now() - cortanaStartTime) / 1000).toFixed(1) + 's';
+        cortanaDuration = parseFloat(((Date.now() - cortanaStartTime) / 1000).toFixed(1));
+        setAgentTimings(prev => ({ ...prev, cortana: durationStr }));
+
+        setAgents(prev => {
+          const next = prev.map(a => a.id === 'cortana' ? { ...a, status: 'completed' as const, taskCount: a.taskCount + 1 } : a);
+          const counts = next.reduce((acc, a) => ({ ...acc, [a.id]: a.taskCount }), {});
+          localStorage.setItem('joelos_agent_task_counts', JSON.stringify(counts));
+          return next;
+        });
+        setPipelineNodes(nodes => nodes.map(n => n.id === 'cortana' ? { ...n, status: 'completed' } : n));
+      } catch (err: any) {
+        console.error('Cortana Agent fail:', err);
+        setMessages(prev => prev.map(m => m.id === cortanaMsgId ? {
+          ...m,
+          text: `Orchestration plan initialized with defaults. Details: ${err.message || err}`,
+          isStreaming: false
+        } : m));
+        setAgents(prev => prev.map(a => a.id === 'cortana' ? { ...a, status: 'completed' } : a));
+        setPipelineNodes(nodes => nodes.map(n => n.id === 'cortana' ? { ...n, status: 'completed' } : n));
+      }
+    } else {
+      setPipelineNodes(nodes => nodes.map(n => n.id === 'cortana' ? { ...n, status: 'skipped' } : n));
+    }
+
     // --- STEP 1: SEMANTIC MEMORY RECALL ---
     if (pipelineAbortedRef.current) return;
     if (isEnabled('memory')) {
@@ -1063,7 +1349,12 @@ export default function App() {
           }
         }));
         setAgentTimings(prev => ({ ...prev, memory: duration }));
-        setAgents(prev => prev.map(a => a.id === 'memory' ? { ...a, status: 'completed' } : a));
+        setAgents(prev => {
+          const next = prev.map(a => a.id === 'memory' ? { ...a, status: 'completed' as const, taskCount: a.taskCount + 1 } : a);
+          const counts = next.reduce((acc, a) => ({ ...acc, [a.id]: a.taskCount }), {});
+          localStorage.setItem('joelos_agent_task_counts', JSON.stringify(counts));
+          return next;
+        });
         setPipelineNodes(nodes => nodes.map(n => n.id === 'memory' ? { ...n, status: 'completed' } : n));
       } catch (err: any) {
         console.error('Memory Agent fail:', err);
@@ -1090,7 +1381,7 @@ export default function App() {
     if (pipelineAbortedRef.current) return;
     let latestResearcherContext = researcherContext;
     if (!fromPhase || fromPhase === 'memory' || fromPhase === 'researcher') {
-      if (isEnabled('researcher')) {
+      if (isEnabled('researcher') && selectedAgentsList.includes('researcher')) {
         const researcherStartTime = Date.now();
         setAgents(prev => prev.map(a => a.id === 'researcher' ? { ...a, status: 'thinking' } : a));
         setPipelineNodes(nodes => nodes.map(n => n.id === 'researcher' ? { ...n, status: 'active' } : n));
@@ -1105,7 +1396,7 @@ export default function App() {
       }]);
 
       try {
-        const activeModel = engine === 'gemini' ? 'gemini-2.5-flash' : researcherModel;
+        const activeModel = engine === 'gemini' ? 'gemini-2.5-flash' : agentModels.researcher;
         const researchPrompt = `Review this query and find technical facts, API specs, or code guidelines. User goal: "${targetQuery}".\n${currentConversationContext ? `Historical memories found:\n${currentConversationContext}` : ''}`;
         
         const response = await fetch('/api/chat', {
@@ -1117,6 +1408,7 @@ export default function App() {
             messages: [{ role: 'user', content: researchPrompt }],
             systemInstruction: systemInstructions.researcher,
             ollamaUrl,
+            cloudApiKey,
             enableSearch: engine === 'gemini' && searchGrounding,
           }),
         });
@@ -1190,14 +1482,19 @@ export default function App() {
             input: `Research and fact check: "${targetQuery}"`,
             output: latestResearcherContext || 'No context returned from source index.',
             timestamp: new Date().toLocaleTimeString(),
-            model: engine === 'gemini' ? 'gemini-2.5-flash' : researcherModel
+            model: engine === 'gemini' ? 'gemini-2.5-flash' : agentModels.researcher
           }
         }));
         const duration = ((Date.now() - researcherStartTime) / 1000).toFixed(1) + 's';
         researcherDuration = parseFloat(((Date.now() - researcherStartTime) / 1000).toFixed(1));
         setAgentTimings(prev => ({ ...prev, researcher: duration }));
         setMessages(prev => prev.map(m => m.id === researcherMsgId ? { ...m, isStreaming: false, rawOutput: latestResearcherContext } : m));
-        setAgents(prev => prev.map(a => a.id === 'researcher' ? { ...a, status: 'completed' } : a));
+        setAgents(prev => {
+          const next = prev.map(a => a.id === 'researcher' ? { ...a, status: 'completed' as const, taskCount: a.taskCount + 1 } : a);
+          const counts = next.reduce((acc, a) => ({ ...acc, [a.id]: a.taskCount }), {});
+          localStorage.setItem('joelos_agent_task_counts', JSON.stringify(counts));
+          return next;
+        });
         setPipelineNodes(nodes => nodes.map(n => n.id === 'researcher' ? { ...n, status: 'completed' } : n));
 
       } catch (err: any) {
@@ -1208,7 +1505,7 @@ export default function App() {
             input: `Research and fact check: "${targetQuery}"`,
             output: `ERROR: ${err.message || err}`,
             timestamp: new Date().toLocaleTimeString(),
-            model: engine === 'gemini' ? 'gemini-2.5-flash' : researcherModel
+            model: engine === 'gemini' ? 'gemini-2.5-flash' : agentModels.researcher
           }
         }));
         setFailedPhase('researcher');
@@ -1228,7 +1525,7 @@ export default function App() {
     if (pipelineAbortedRef.current) return;
     let latestPlannerOutputText = plannerOutputText;
     if (!fromPhase || fromPhase === 'memory' || fromPhase === 'researcher' || fromPhase === 'planner') {
-      if (isEnabled('planner')) {
+      if (isEnabled('planner') && selectedAgentsList.includes('planner')) {
         const plannerStartTime = Date.now();
         setAgents(prev => prev.map(a => a.id === 'planner' ? { ...a, status: 'thinking' } : a));
         setPipelineNodes(nodes => nodes.map(n => n.id === 'planner' ? { ...n, status: 'active' } : n));
@@ -1243,7 +1540,7 @@ export default function App() {
       }]);
 
       try {
-        const activeModel = engine === 'gemini' ? 'gemini-2.5-flash' : plannerModel;
+        const activeModel = engine === 'gemini' ? 'gemini-2.5-flash' : agentModels.planner;
         const plannerPrompt = `Formulate a complete step-by-step non-coding architectural plan to satisfy this user goal: "${targetQuery}".\nUse this research analysis as backing guidelines:\n${latestResearcherContext}\n${currentConversationContext ? `Historical memory guidelines:\n${currentConversationContext}` : ''}`;
 
         const response = await fetch('/api/chat', {
@@ -1255,6 +1552,7 @@ export default function App() {
             messages: [{ role: 'user', content: plannerPrompt }],
             systemInstruction: systemInstructions.planner,
             ollamaUrl,
+            cloudApiKey,
           }),
         });
 
@@ -1327,14 +1625,19 @@ export default function App() {
             input: `Draft task blueprint plan for user goal: "${targetQuery}"`,
             output: latestPlannerOutputText || 'No architectural plan output.',
             timestamp: new Date().toLocaleTimeString(),
-            model: engine === 'gemini' ? 'gemini-2.5-flash' : plannerModel
+            model: engine === 'gemini' ? 'gemini-2.5-flash' : agentModels.planner
           }
         }));
         const duration = ((Date.now() - plannerStartTime) / 1000).toFixed(1) + 's';
         plannerDuration = parseFloat(((Date.now() - plannerStartTime) / 1000).toFixed(1));
         setAgentTimings(prev => ({ ...prev, planner: duration }));
         setMessages(prev => prev.map(m => m.id === plannerMsgId ? { ...m, isStreaming: false, rawOutput: latestPlannerOutputText } : m));
-        setAgents(prev => prev.map(a => a.id === 'planner' ? { ...a, status: 'completed' } : a));
+        setAgents(prev => {
+          const next = prev.map(a => a.id === 'planner' ? { ...a, status: 'completed' as const, taskCount: a.taskCount + 1 } : a);
+          const counts = next.reduce((acc, a) => ({ ...acc, [a.id]: a.taskCount }), {});
+          localStorage.setItem('joelos_agent_task_counts', JSON.stringify(counts));
+          return next;
+        });
         setPipelineNodes(nodes => nodes.map(n => n.id === 'planner' ? { ...n, status: 'completed' } : n));
 
       } catch (err: any) {
@@ -1345,7 +1648,7 @@ export default function App() {
             input: `Draft task blueprint plan for user goal: "${targetQuery}"`,
             output: `ERROR: ${err.message || err}`,
             timestamp: new Date().toLocaleTimeString(),
-            model: engine === 'gemini' ? 'gemini-2.5-flash' : plannerModel
+            model: engine === 'gemini' ? 'gemini-2.5-flash' : agentModels.planner
           }
         }));
         setFailedPhase('planner');
@@ -1365,7 +1668,7 @@ export default function App() {
     if (pipelineAbortedRef.current) return;
     let latestCoderOutputText = coderOutputText;
     if (!fromPhase || fromPhase === 'memory' || fromPhase === 'researcher' || fromPhase === 'planner' || fromPhase === 'coder') {
-      if (isEnabled('coder')) {
+      if (isEnabled('coder') && selectedAgentsList.includes('coder')) {
         const coderStartTime = Date.now();
         setAgents(prev => prev.map(a => a.id === 'coder' ? { ...a, status: 'thinking' } : a));
         setPipelineNodes(nodes => nodes.map(n => n.id === 'coder' ? { ...n, status: 'active' } : n));
@@ -1381,7 +1684,7 @@ export default function App() {
       }]);
 
       try {
-        const activeModel = engine === 'gemini' ? 'gemini-2.5-pro' : coderModel;
+        const activeModel = engine === 'gemini' ? 'gemini-2.5-pro' : agentModels.coder;
         const coderPrompt = `Review this architectural blueprint plan and write high-quality production-ready implementations:\n${latestPlannerOutputText}`;
 
         const response = await fetch('/api/chat', {
@@ -1393,6 +1696,7 @@ export default function App() {
             messages: [{ role: 'user', content: coderPrompt }],
             systemInstruction: systemInstructions.coder,
             ollamaUrl,
+            cloudApiKey,
           }),
         });
 
@@ -1465,14 +1769,19 @@ export default function App() {
             input: 'Compile and construct production-ready source code files matching architectural blueprint.',
             output: latestCoderOutputText || 'No source code output returned.',
             timestamp: new Date().toLocaleTimeString(),
-            model: engine === 'gemini' ? 'gemini-2.5-pro' : coderModel
+            model: engine === 'gemini' ? 'gemini-2.5-pro' : agentModels.coder
           }
         }));
         const duration = ((Date.now() - coderStartTime) / 1000).toFixed(1) + 's';
         coderDuration = parseFloat(((Date.now() - coderStartTime) / 1000).toFixed(1));
         setAgentTimings(prev => ({ ...prev, coder: duration }));
         setMessages(prev => prev.map(m => m.id === coderMsgId ? { ...m, isStreaming: false, rawOutput: latestCoderOutputText, previousRawOutput: coderOutputText } : m));
-        setAgents(prev => prev.map(a => a.id === 'coder' ? { ...a, status: 'completed' } : a));
+        setAgents(prev => {
+          const next = prev.map(a => a.id === 'coder' ? { ...a, status: 'completed' as const, taskCount: a.taskCount + 1 } : a);
+          const counts = next.reduce((acc, a) => ({ ...acc, [a.id]: a.taskCount }), {});
+          localStorage.setItem('joelos_agent_task_counts', JSON.stringify(counts));
+          return next;
+        });
         setPipelineNodes(nodes => nodes.map(n => n.id === 'coder' ? { ...n, status: 'completed' } : n));
 
       } catch (err: any) {
@@ -1483,7 +1792,7 @@ export default function App() {
             input: 'Compile and construct production-ready source code files matching architectural blueprint.',
             output: `ERROR: ${err.message || err}`,
             timestamp: new Date().toLocaleTimeString(),
-            model: engine === 'gemini' ? 'gemini-2.5-pro' : coderModel
+            model: engine === 'gemini' ? 'gemini-2.5-pro' : agentModels.coder
           }
         }));
         setFailedPhase('coder');
@@ -1503,7 +1812,7 @@ export default function App() {
     if (pipelineAbortedRef.current) return;
     let latestReviewerOutputText = reviewerOutputText;
     if (!fromPhase || fromPhase === 'memory' || fromPhase === 'researcher' || fromPhase === 'planner' || fromPhase === 'coder' || fromPhase === 'reviewer') {
-      if (isEnabled('reviewer')) {
+      if (isEnabled('reviewer') && selectedAgentsList.includes('reviewer')) {
         const reviewerStartTime = Date.now();
         setAgents(prev => prev.map(a => a.id === 'reviewer' ? { ...a, status: 'thinking' } : a));
         setPipelineNodes(nodes => nodes.map(n => n.id === 'reviewer' ? { ...n, status: 'active' } : n));
@@ -1518,7 +1827,7 @@ export default function App() {
       }]);
 
       try {
-        const activeModel = engine === 'gemini' ? 'gemini-2.5-flash' : reviewerModel;
+        const activeModel = engine === 'gemini' ? 'gemini-2.5-flash' : agentModels.reviewer;
         const reviewerPrompt = `Analyze this developed code implementation for potential security vulnerabilities, performance bottlenecks, and architectural violations:\n${latestCoderOutputText}`;
 
         const response = await fetch('/api/chat', {
@@ -1530,6 +1839,7 @@ export default function App() {
             messages: [{ role: 'user', content: reviewerPrompt }],
             systemInstruction: systemInstructions.reviewer,
             ollamaUrl,
+            cloudApiKey,
           }),
         });
 
@@ -1602,14 +1912,19 @@ export default function App() {
             input: 'Audit codebase implementation structures against quality, security and performance standards.',
             output: latestReviewerOutputText || 'No review audit feedback returned.',
             timestamp: new Date().toLocaleTimeString(),
-            model: engine === 'gemini' ? 'gemini-2.5-flash' : reviewerModel
+            model: engine === 'gemini' ? 'gemini-2.5-flash' : agentModels.reviewer
           }
         }));
         const duration = ((Date.now() - reviewerStartTime) / 1000).toFixed(1) + 's';
         reviewerDuration = parseFloat(((Date.now() - reviewerStartTime) / 1000).toFixed(1));
         setAgentTimings(prev => ({ ...prev, reviewer: duration }));
         setMessages(prev => prev.map(m => m.id === reviewerMsgId ? { ...m, isStreaming: false, rawOutput: latestReviewerOutputText } : m));
-        setAgents(prev => prev.map(a => a.id === 'reviewer' ? { ...a, status: 'completed' } : a));
+        setAgents(prev => {
+          const next = prev.map(a => a.id === 'reviewer' ? { ...a, status: 'completed' as const, taskCount: a.taskCount + 1 } : a);
+          const counts = next.reduce((acc, a) => ({ ...acc, [a.id]: a.taskCount }), {});
+          localStorage.setItem('joelos_agent_task_counts', JSON.stringify(counts));
+          return next;
+        });
         setPipelineNodes(nodes => nodes.map(n => n.id === 'reviewer' ? { ...n, status: 'completed' } : n));
 
       } catch (err: any) {
@@ -1620,7 +1935,7 @@ export default function App() {
             input: 'Audit codebase implementation structures against quality, security and performance standards.',
             output: `ERROR: ${err.message || err}`,
             timestamp: new Date().toLocaleTimeString(),
-            model: engine === 'gemini' ? 'gemini-2.5-flash' : reviewerModel
+            model: engine === 'gemini' ? 'gemini-2.5-flash' : agentModels.reviewer
           }
         }));
         setFailedPhase('reviewer');
@@ -1666,13 +1981,17 @@ export default function App() {
 
       const updatedMemories = [newMemoryItem, ...memories];
       setMemories(updatedMemories);
-      localStorage.setItem('joelos_memories', JSON.stringify(updatedMemories));
+      fetch('/api/memory', {
+        method: 'POST',
+        body: JSON.stringify({ items: updatedMemories }),
+        headers: { 'Content-Type': 'application/json' }
+      }).catch(err => console.error('Error saving memories:', err));
       
       setNodeContexts(prev => ({
         ...prev,
         output: {
           input: 'Aggregate audited codebase blocks and finalize release deliverables.',
-          output: `Successfully compiled final codebase artifacts. Generated and saved new memory vector block to browser storage (Ledger Item ID: mem-${Date.now()}).`,
+          output: `Successfully compiled final codebase artifacts. Generated and saved new memory vector block to server-side storage (Ledger Item ID: mem-${Date.now()}).`,
           timestamp: new Date().toLocaleTimeString(),
           model: 'JoelOS Synthesizer'
         }
@@ -1806,7 +2125,8 @@ export default function App() {
   };
 
   return (
-    <div className={`h-screen w-screen overflow-hidden ${theme === 'light' ? 'bg-[#f3f6f4] text-slate-800' : (theme === 'oled' ? 'bg-[#000000] text-emerald-200/90' : 'bg-[#020403] text-emerald-200/90')} flex flex-col font-sans selection:bg-emerald-500/35 selection:text-white terminal-grid transition-colors duration-300`}>
+    <SidebarProvider defaultOpen={false} style={{ "--sidebar-width": "24rem", "--sidebar-width-icon": "4rem" } as React.CSSProperties}>
+      <div className={`h-screen w-full overflow-hidden ${theme === 'light' ? 'bg-[#f3f6f4] text-slate-800' : (theme === 'oled' ? 'bg-[#000000] text-emerald-200/90' : 'bg-[#020403] text-emerald-200/90')} flex flex-col font-sans selection:bg-emerald-500/35 selection:text-white terminal-grid transition-colors duration-300`}>
       <style>{`
         :root {
           --theme-color: ${colorPalette === 'matrix-green' ? '#00ff66' : '#00d2ff'};
@@ -2058,7 +2378,7 @@ export default function App() {
           </button>
 
           {/* Connected Neon-Green "jb" Logo Icon (mimics uploaded favicon precisely) */}
-          <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-[#010302] border border-emerald-500/40 shadow-lg shadow-emerald-500/15 shrink-0 overflow-hidden group">
+          <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-[#010302] border border-emerald-500/40 shadow-lg shadow-emerald-500/15 shrink-0 overflow-hidden group hidden sm:flex">
             <svg viewBox="0 0 100 100" className="w-8 h-8" fill="none" xmlns="http://www.w3.org/2000/svg">
               <defs>
                 <filter id="logo-glow" x="-40%" y="-40%" width="180%" height="180%">
@@ -2091,7 +2411,7 @@ export default function App() {
             </svg>
             <div className="absolute inset-0 bg-emerald-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
           </div>
-          <div>
+          <div className="hidden sm:block">
             <div className="flex items-center gap-2">
               <h1 className="font-sans font-bold text-lg sm:text-xl tracking-tight bg-gradient-to-r from-emerald-50 to-emerald-400 bg-clip-text text-transparent">JoelOS</h1>
               <span className="text-[10px] font-mono uppercase font-black bg-emerald-500/15 border border-emerald-500/35 px-2.5 py-0.5 rounded-full text-emerald-400 tracking-wider">v1.2.0</span>
@@ -2099,14 +2419,36 @@ export default function App() {
           </div>
         </div>
 
+        {/* Tab Switcher for Pipeline vs Private Agent Chat */}
+        {activeTab === 'pipeline' && (
+          <div className={`hidden md:flex border border-emerald-900/40 bg-[#020503] rounded-xl p-1 shrink-0 gap-1`}>
+            <button
+              onClick={() => setChatTab('global')}
+              className={`px-3 py-1.5 text-[11px] font-mono font-bold tracking-wider rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
+                chatTab === 'global'
+                  ? 'bg-emerald-950/80 text-white border border-emerald-500/40 shadow-[0_0_8px_rgba(0,255,102,0.15)] font-black'
+                  : 'text-emerald-500/60 hover:text-emerald-400 border border-transparent hover:bg-emerald-950/40'
+              }`}
+            >
+              <Terminal size={12} />
+              <span>ORCHESTRATOR PIPELINE</span>
+            </button>
+            <button
+              onClick={() => setChatTab('private')}
+              className={`px-3 py-1.5 text-[11px] font-mono font-bold tracking-wider rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
+                chatTab === 'private'
+                  ? 'bg-emerald-950/80 text-white border border-emerald-500/40 shadow-[0_0_8px_rgba(0,255,102,0.15)] font-black'
+                  : 'text-emerald-500/60 hover:text-emerald-400 border border-transparent hover:bg-emerald-950/40'
+              }`}
+            >
+              <MessageSquare size={12} />
+              <span>PRIVATE AGENT CHAT</span>
+            </button>
+          </div>
+        )}
+
         {/* Global Connection Controls */}
         <div className="flex items-center gap-2 sm:gap-4">
-          {/* Health Status Indicator */}
-          <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#020503] border border-emerald-950 text-xs font-mono">
-            <span className={`w-2.5 h-2.5 rounded-full ${serverHealthy ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)] animate-pulse' : 'bg-rose-500 animate-pulse'}`}></span>
-            <span className="text-emerald-400">{serverHealthy ? 'JoelOS Server Live' : 'Server Down'}</span>
-          </div>
-
           {/* Ollama Connection Indicator */}
           <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#020503] border border-emerald-950 text-xs font-mono">
             <span className={`w-2.5 h-2.5 rounded-full ${ollamaConnectionStatus === 'connected' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)] animate-pulse' : 'bg-amber-500 animate-pulse'}`}></span>
@@ -2177,24 +2519,6 @@ export default function App() {
 
           {/* Quick Utility Icons Group */}
           <div className="flex items-center gap-1 bg-[#020503] p-1 rounded-xl border border-emerald-900/40 shrink-0">
-            {/* Sound Effects Toggle Button */}
-            <button
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              className="p-2 rounded-lg text-emerald-500 hover:text-emerald-300 hover:bg-emerald-950/40 transition-all cursor-pointer min-w-[36px] min-h-[36px] flex items-center justify-center"
-              title={soundEnabled ? "Mute notification chime" : "Unmute notification chime"}
-            >
-              {soundEnabled ? <Volume2 size={15} className="text-emerald-400" /> : <VolumeX size={15} className="text-emerald-600" />}
-            </button>
-
-            {/* Export Chat Markdown */}
-            <button
-              onClick={exportChatAsMarkdown}
-              className="p-2 rounded-lg text-emerald-500 hover:text-emerald-300 hover:bg-emerald-950/40 transition-all cursor-pointer min-w-[36px] min-h-[36px] flex items-center justify-center"
-              title="Export Conversation Log as Markdown"
-            >
-              <Download size={15} />
-            </button>
-
             {/* Keyboard Shortcuts Trigger */}
             <button
               onClick={() => setShortcutsOpen(true)}
@@ -2210,310 +2534,137 @@ export default function App() {
       {/* Main Container Layout */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
 
-        {/* LEFT COLUMN: Sidebar (Status, Config presets, Metrics) */}
-        <aside className={`${mobileMenuOpen ? 'flex absolute inset-0 z-40' : 'hidden lg:flex lg:relative'} w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-emerald-900/30 ${theme === 'oled' ? 'bg-[#000000]' : 'bg-[#050c08]'} p-5 flex flex-col gap-6 overflow-hidden transition-all duration-300 shadow-xl h-full`}>
-          
-          <div className="flex items-center justify-between lg:hidden mb-2">
-            <span className="font-bold text-emerald-400">Menu</span>
-            <button onClick={() => setMobileMenuOpen(false)} className="p-1 rounded bg-emerald-950/50 text-emerald-400">
-              <X size={16} />
-            </button>
-          </div>
+        <Sidebar side="left" collapsible="icon" className="border-r border-emerald-900/30 z-20 font-mono shadow-xl">
+          <SidebarContent className={`${theme === 'oled' ? 'bg-[#000000]' : 'bg-[#050c08]'} gap-0`}>
+            
+            <SidebarGroup className="flex-1 min-h-0 py-5 group-data-[collapsible=icon]:px-2 group-data-[collapsible=offcanvas]:p-5">
+              
+              <div className="flex items-center justify-between mb-4 shrink-0 group-data-[collapsible=icon]:hidden">
+                <h3 className="text-[10px] uppercase tracking-widest text-emerald-300 font-bold flex items-center gap-2 px-2.5 py-1 rounded bg-[#0b2114] border border-emerald-500/25">
+                  <Layers size={11} className="text-[#00ff66]" />
+                  <span>Core Agents</span>
+                </h3>
+                <span className="text-[10px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-2 py-0.5 rounded font-bold">
+                  {agents.filter(a => a.enabled !== false).length} ONLINE
+                </span>
+              </div>
+              <div className="mb-4 shrink-0 mt-4 group-data-[collapsible=offcanvas]:hidden hidden group-data-[collapsible=icon]:flex justify-center" title="Core Agents">
+                <Layers size={18} className="text-emerald-500/80" />
+              </div>
 
-          <div className="flex sm:hidden flex-wrap gap-2 pb-4 border-b border-emerald-900/30">
-            <button
-              onClick={() => { setActiveTab('pipeline'); setMobileMenuOpen(false); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5 ${activeTab === 'pipeline' ? 'bg-[#10b981]/25 text-emerald-200 border border-[#10b981]/40' : 'text-emerald-600 border border-transparent'}`}
-            >
-              <Terminal size={12} /> Pipeline
-            </button>
-            <button
-              onClick={() => { setActiveTab('settings'); setMobileMenuOpen(false); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5 ${activeTab === 'settings' ? 'bg-[#10b981]/25 text-emerald-200 border border-[#10b981]/40' : 'text-emerald-600 border border-transparent'}`}
-            >
-              <Settings size={12} /> Config
-            </button>
-            <button
-              onClick={() => { setActiveTab('mail'); setMobileMenuOpen(false); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5 ${activeTab === 'mail' ? 'bg-[#10b981]/25 text-emerald-200 border border-[#10b981]/40' : 'text-emerald-600 border border-transparent'}`}
-            >
-              <Mail size={12} /> Mail
-            </button>
-            <button
-              onClick={() => { setIsMemoryDrawerOpen(true); setMobileMenuOpen(false); }}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5 text-emerald-600 border border-transparent"
-            >
-              <Database size={12} /> Memory
-            </button>
-            <button
-              onClick={() => { setShowModelHub(true); setMobileMenuOpen(false); }}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5 text-emerald-600 border border-transparent"
-            >
-              <Server size={12} /> Model Hub
-            </button>
-          </div>
-
-          {/* Agent Status Deck */}
-          <div className="flex flex-col min-h-0 flex-1">
-            <div className="flex items-center justify-between mb-4 shrink-0">
-              <h3 className="text-[10px] uppercase tracking-widest text-emerald-300 font-bold flex items-center gap-2 px-2.5 py-1 rounded bg-[#0b2114] border border-emerald-500/25">
-                <Layers size={11} className="text-[#00ff66]" />
-                <span>Core Agents</span>
-              </h3>
-              <span className="text-[10px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-2 py-0.5 rounded font-bold">
-                {agents.filter(a => a.enabled !== false).length} ONLINE
-              </span>
-            </div>
-
-            <div className="space-y-2.5 overflow-y-auto flex-1 pr-1 select-none">
-              {agents.map((agent) => (
-                <div
-                  key={agent.id}
-                  className={`relative p-3.5 rounded-xl border transition-all flex items-center gap-3.5 ${
-                    agent.enabled === false
-                      ? 'border-emerald-950/30 bg-[#050a08]/50 opacity-50'
-                      : agent.status === 'thinking'
-                        ? 'border-emerald-400 bg-[#0d2719] shadow-[0_0_15px_rgba(16,185,129,0.25)]'
-                        : 'border-emerald-950 bg-[#091510]/50 hover:bg-[#0c1e16] hover:border-emerald-900/60'
-                  }`}
-                >
-                  <div className="text-2xl shrink-0 filter grayscale-0 opacity-100 transition-all">{agent.icon}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-xs text-slate-100">{agent.name}</span>
-                        <button
-                          onClick={() => {
-                            if (pipelineIsRunning) return;
-                            setAgents(prev => {
-                              const next = prev.map(a => a.id === agent.id ? { ...a, enabled: a.enabled === false ? true : false } : a);
-                              const enabledMap = next.reduce((acc, a) => ({ ...acc, [a.id]: a.enabled }), {});
-                              localStorage.setItem('joelos_enabled_agents', JSON.stringify(enabledMap));
-                              return next;
-                            });
-                          }}
-                          disabled={pipelineIsRunning}
-                          className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase transition-colors ${
-                            agent.enabled === false 
-                              ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 cursor-pointer' 
-                              : 'bg-emerald-900/60 text-[#00ff66] hover:bg-emerald-800/80 cursor-pointer'
-                          }`}
-                        >
-                          {agent.enabled === false ? 'OFF' : 'ON'}
-                        </button>
+              <div className="space-y-2.5 overflow-y-auto flex-1 select-none pr-1 group-data-[collapsible=icon]:no-scrollbar group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:gap-3 group-data-[collapsible=icon]:pr-0">
+                {agents.map((agent) => (
+                  <div
+                    key={agent.id}
+                    title={agent.name}
+                    className={`relative rounded-xl border transition-all flex items-center gap-3.5 group-data-[collapsible=offcanvas]:p-3.5 group-data-[collapsible=icon]:p-2 group-data-[collapsible=icon]:justify-center ${
+                      agent.enabled === false
+                        ? 'border-emerald-950/30 bg-[#050a08]/50 opacity-50'
+                        : agent.status === 'thinking'
+                          ? 'border-emerald-400 bg-[#0d2719] shadow-[0_0_15px_rgba(16,185,129,0.25)]'
+                          : 'border-emerald-950 bg-[#091510]/50 hover:bg-[#0c1e16] hover:border-emerald-900/60'
+                    }`}
+                  >
+                    <div className={`text-2xl shrink-0 filter grayscale-0 opacity-100 transition-all group-data-[collapsible=icon]:text-xl`}>{agent.icon}</div>
+                    
+                    <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
+                      <div className="flex items-center justify-between gap-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-xs text-slate-100">{agent.name}</span>
+                          <button
+                            onClick={() => {
+                              if (pipelineIsRunning) return;
+                              setAgents(prev => {
+                                const next = prev.map(a => a.id === agent.id ? { ...a, enabled: a.enabled === false ? true : false } : a);
+                                const enabledMap = next.reduce((acc, a) => ({ ...acc, [a.id]: a.enabled }), {});
+                                localStorage.setItem('joelos_enabled_agents', JSON.stringify(enabledMap));
+                                return next;
+                              });
+                            }}
+                            disabled={pipelineIsRunning}
+                            className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase transition-colors ${
+                              agent.enabled === false 
+                                ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 cursor-pointer' 
+                                : 'bg-emerald-900/60 text-[#00ff66] hover:bg-emerald-800/80 cursor-pointer'
+                            }`}
+                          >
+                            {agent.enabled === false ? 'OFF' : 'ON'}
+                          </button>
+                        </div>
+                        <span className="text-[9px] font-mono text-emerald-400/80 truncate max-w-[85px] bg-emerald-950/40 px-1 py-0.5 rounded">{agent.model}</span>
                       </div>
-                      <span className="text-[9px] font-mono text-emerald-400/80 truncate max-w-[85px] bg-emerald-950/40 px-1 py-0.5 rounded">{agent.model}</span>
+                      <p className="text-[11px] text-slate-300/80 truncate mt-1">{agent.description}</p>
+                      {(agentTimings[agent.id] || agentTokens[agent.id]) && (
+                        <div className="flex items-center gap-2 mt-2 text-[9px] font-mono text-emerald-300 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-500/20 w-fit">
+                          {agentTimings[agent.id] && (
+                            <span className="flex items-center gap-1">
+                              <Clock size={9} className="text-[#00ff66]" />
+                              {agentTimings[agent.id]}
+                            </span>
+                          )}
+                          {agentTimings[agent.id] && agentTokens[agent.id] && (
+                            <span className="text-emerald-800">•</span>
+                          )}
+                          {agentTokens[agent.id] && (
+                            <span className="flex items-center gap-1">
+                              <Layers size={9} className="text-[#00ff66]" />
+                              {agentTokens[agent.id]} T
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <p className="text-[11px] text-slate-300/80 truncate mt-1">{agent.description}</p>
-                    {(agentTimings[agent.id] || agentTokens[agent.id]) && (
-                      <div className="flex items-center gap-2 mt-2 text-[9px] font-mono text-emerald-300 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-500/20 w-fit">
-                        {agentTimings[agent.id] && (
-                          <span className="flex items-center gap-1">
-                            <Clock size={9} className="text-[#00ff66]" />
-                            {agentTimings[agent.id]}
-                          </span>
-                        )}
-                        {agentTimings[agent.id] && agentTokens[agent.id] && (
-                          <span className="text-emerald-800">•</span>
-                        )}
-                        {agentTokens[agent.id] && (
-                          <span className="flex items-center gap-1">
-                            <Layers size={9} className="text-[#00ff66]" />
-                            {agentTokens[agent.id]} T
-                          </span>
-                        )}
-                      </div>
-                    )}
+                    {/* Pulsing Status Dot */}
+                    <div className="relative flex items-center justify-center shrink-0">
+                      <span className={`w-2.5 h-2.5 rounded-full ${agent.dotColor} ${agent.status === 'thinking' ? 'animate-status-pulse text-[#00ff66]' : ''}`}></span>
+                      {agent.status === 'thinking' && (
+                        <span className="absolute w-2.5 h-2.5 rounded-full border border-emerald-400 animate-ping"></span>
+                      )}
+                    </div>
                   </div>
+                ))}
+              </div>
+            </SidebarGroup>
 
-                  {/* Pulsing Status Dot */}
-                  <div className="relative flex items-center justify-center shrink-0">
-                    <span className={`w-2.5 h-2.5 rounded-full ${agent.dotColor} ${agent.status === 'thinking' ? 'animate-status-pulse text-[#00ff66]' : ''}`}></span>
-                    {agent.status === 'thinking' && (
-                      <span className="absolute w-2.5 h-2.5 rounded-full border border-emerald-400 animate-ping"></span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          </SidebarContent>
 
-          {/* Quick Stats Panel */}
-          <div className="mt-auto pt-4 border-t border-emerald-900/35 text-[10px] font-mono text-emerald-400/80 space-y-2 shrink-0">
-            <div className="flex justify-between">
-              <span>SESSION TOKENS:</span>
-              <span className="text-[#00ff66] font-bold">{sessionTokens.toLocaleString()} T</span>
+          <SidebarFooter className={`${theme === 'oled' ? 'bg-[#000000]' : 'bg-[#050c08]'} p-5 pt-4 border-t border-emerald-900/35 group-data-[collapsible=icon]:hidden`}>
+            <div className="text-[10px] font-mono text-emerald-400/80 space-y-2 shrink-0">
+              <div className="flex justify-between">
+                <span>SESSION TOKENS:</span>
+                <span className="text-[#00ff66] font-bold">{sessionTokens.toLocaleString()} T</span>
+              </div>
+              <div className="flex justify-between">
+                <span>LOCAL MODELS:</span>
+                <span className="text-[#00ff66] font-bold">{installedOllamaModels.length} DETECTED</span>
+              </div>
+              <div className="flex justify-between">
+                <span>LEDGER SIZE:</span>
+                <span className="text-[#00ff66] font-bold">{memories.length} ENTRIES</span>
+              </div>
+              <div className="flex justify-between">
+                <span>EMBEDDING VECTOR:</span>
+                <span className="text-[#00ff66] font-bold">{engine === 'gemini' ? '768-D GEMINI' : '128-D LOCAL'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>OLLAMA STATUS:</span>
+                <span className={`${ollamaConnectionStatus === 'connected' ? 'text-[#00ff66]' : 'text-amber-500'} font-bold uppercase`}>{ollamaConnectionStatus}</span>
+              </div>
             </div>
-            <div className="flex justify-between">
-              <span>LOCAL MODELS:</span>
-              <span className="text-[#00ff66] font-bold">{installedOllamaModels.length} DETECTED</span>
-            </div>
-            <div className="flex justify-between">
-              <span>LEDGER SIZE:</span>
-              <span className="text-[#00ff66] font-bold">{memories.length} ENTRIES</span>
-            </div>
-            <div className="flex justify-between">
-              <span>EMBEDDING VECTOR:</span>
-              <span className="text-[#00ff66] font-bold">{engine === 'gemini' ? '768-D GEMINI' : '128-D LOCAL'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>OLLAMA STATUS:</span>
-              <span className={`${ollamaConnectionStatus === 'connected' ? 'text-[#00ff66]' : 'text-amber-500'} font-bold uppercase`}>{ollamaConnectionStatus}</span>
-            </div>
-          </div>
-
-        </aside>
+          </SidebarFooter>
+        </Sidebar>
 
         {/* MIDDLE COLUMN: Chat Interface & Visual Orchestrator Flow */}
-        <main className={`flex-1 flex flex-col overflow-hidden ${theme === 'oled' ? 'bg-[#000000]' : 'bg-[#040806]'} transition-colors duration-300`}>
+        <main className={`flex-1 flex flex-col overflow-hidden relative ${theme === 'oled' ? 'bg-[#000000]' : 'bg-[#040806]'} transition-colors duration-300`}>
+          <div className="absolute top-4 left-4 z-20 md:hidden">
+            <SidebarTrigger className="bg-[#0b2114] text-emerald-400 border border-emerald-500/30 rounded-lg p-2" />
+          </div>
           
           {activeTab === 'pipeline' ? (
             <>
-              {/* Orchestrator Pipeline Visualizer */}
-              <div className={`px-6 py-4.5 border-b border-emerald-900/30 ${theme === 'oled' ? 'bg-black' : 'bg-[#060e0a]'} relative`}>
-                <div className="flex items-center justify-between mb-3.5">
-                  <div className="flex items-center gap-2">
-                    <Terminal size={14} className="text-[#00ff66]" />
-                    <span className="text-xs font-black tracking-wider font-mono uppercase text-emerald-300">Active Execution Pipeline</span>
-                    {pipelineIsRunning && (
-                      <button
-                        onClick={stopPipelineOrchestration}
-                        className="ml-3 px-2.5 py-1 rounded-lg bg-rose-950/70 hover:bg-rose-900/60 text-rose-200 border border-rose-500/50 text-[10px] font-black font-mono uppercase tracking-wider flex items-center gap-1.5 cursor-pointer animate-pulse transition-all active:scale-95"
-                        title="Halt active agent execution immediately"
-                      >
-                        <AlertCircle size={10} className="text-rose-400" />
-                        <span>HALT PIPELINE</span>
-                      </button>
-                    )}
-                  </div>
-                  <span className="text-[10px] font-mono text-emerald-500/60 uppercase font-bold tracking-wider">Goal Execution Sequence (Click node to inspect context)</span>
-                </div>
-
-                {/* Nodes container */}
-                <div className="flex flex-wrap items-center gap-y-3 gap-x-2.5">
-                  {pipelineNodes.map((node, index) => {
-                    // Check status colors
-                    let statusColor = 'bg-emerald-950/10 border-emerald-950 text-emerald-600/60';
-                    let glow = '';
-                    if (node.status === 'active') {
-                      statusColor = 'bg-emerald-900/25 border-emerald-400 text-white animate-pulse';
-                      glow = 'shadow-[0_0_12px_rgba(0,255,102,0.35)]';
-                    } else if (node.status === 'completed') {
-                      statusColor = 'bg-[#0a1f13] border-emerald-500/50 text-emerald-300';
-                      glow = 'shadow-[0_0_8px_rgba(16,185,129,0.2)]';
-                    } else if (node.status === 'error') {
-                      statusColor = 'bg-[#2a0b10] border-rose-500 text-rose-300';
-                      glow = 'shadow-[0_0_12px_rgba(244,63,94,0.4)]';
-                    } else if (node.status === 'skipped') {
-                      statusColor = 'bg-slate-900/50 border-slate-700/50 text-slate-500';
-                    }
-
-                    return (
-                      <div key={node.id} className="flex items-center gap-2">
-                        <button
-                          onClick={() => {
-                            setSelectedNodeContextId(prev => prev === node.id ? null : node.id);
-                          }}
-                          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-mono font-bold transition-all duration-300 cursor-pointer text-left focus:outline-none ${statusColor} ${glow} ${selectedNodeContextId === node.id ? 'ring-2 ring-emerald-400 border-transparent shadow-[0_0_15px_rgba(16,185,129,0.4)]' : ''}`}
-                          title={`Click to view run summary for ${node.label}`}
-                        >
-                          <span className={`w-2 h-2 rounded-full ${
-                            node.status === 'completed' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(0,255,102,0.8)]' :
-                            node.status === 'active' ? 'bg-[#00ff66] animate-ping' :
-                            node.status === 'error' ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]' :
-                            node.status === 'skipped' ? 'bg-slate-700' : 'bg-emerald-900'
-                          }`}></span>
-                          <span>{node.label}</span>
-                        </button>
-                        {index < pipelineNodes.length - 1 && (
-                          <div className="h-[2px] w-4 bg-emerald-950 shrink-0"></div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Node context popover */}
-                {selectedNodeContextId && (() => {
-                  const node = pipelineNodes.find(n => n.id === selectedNodeContextId);
-                  const context = nodeContexts[selectedNodeContextId];
-                  if (!node) return null;
-                  return (
-                    <div className={`absolute left-6 right-6 top-[calc(100%-8px)] z-30 p-4 rounded-xl border border-emerald-500/30 shadow-2xl ${theme === 'oled' ? 'bg-[#050505]' : 'bg-[#09110d]'} font-mono text-xs animate-in fade-in slide-in-from-top-2 duration-200`}>
-                      <div className="flex items-center justify-between border-b border-emerald-900/30 pb-2 mb-2.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`w-2 h-2 rounded-full ${
-                            node.status === 'completed' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(0,255,102,0.8)]' :
-                            node.status === 'active' ? 'bg-[#00ff66] animate-pulse' :
-                            node.status === 'error' ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]' :
-                            node.status === 'skipped' ? 'bg-slate-700' : 'bg-emerald-900'
-                          }`}></span>
-                          <span className="font-bold text-emerald-300 uppercase">{node.label} Run Context Summary</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {context?.model && (
-                            <span className="text-[10px] bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 px-1.5 py-0.5 rounded font-bold">
-                              {context.model}
-                            </span>
-                          )}
-                          {context?.timestamp && (
-                            <span className="text-[10px] text-emerald-500/50 font-bold">
-                              {context.timestamp}
-                            </span>
-                          )}
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); setSelectedNodeContextId(null); }}
-                            className="text-emerald-500 hover:text-white transition-colors cursor-pointer p-0.5"
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      </div>
-                      <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
-                        <div>
-                          <span className="text-[10px] text-emerald-500/60 uppercase font-black block mb-1">Target / Input Context:</span>
-                          <p className="text-slate-200 text-[11px] leading-relaxed bg-black/40 p-2.5 rounded border border-emerald-950/40">
-                            {context ? context.input : `No input context. Awaiting activation...`}
-                          </p>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-emerald-500/60 uppercase font-black block mb-1">Payload / Streamed Output:</span>
-                          <pre className="text-emerald-300 text-[11px] leading-relaxed bg-black/60 p-2.5 rounded border border-emerald-950/60 whitespace-pre-wrap overflow-x-auto font-mono max-h-24">
-                            {context ? context.output : (node.status === 'active' ? 'Synthesizing output stream...' : 'Waiting to capture output payload from current run.')}
-                          </pre>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Global Progress Bar */}
-              {pipelineIsRunning && (() => {
-                const completedCount = pipelineNodes.filter(n => n.status === 'completed').length;
-                const activeCount = pipelineNodes.filter(n => n.status === 'active').length;
-                const percent = Math.min(100, Math.round(((completedCount + activeCount * 0.5) / pipelineNodes.length) * 100));
-                return (
-                  <div className="px-6 py-2 bg-black/35 border-b border-emerald-950/40 flex items-center justify-between gap-4 font-mono text-[10px]">
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-[#00ff66] font-bold animate-pulse">●</span>
-                      <span className="text-emerald-500/70 uppercase font-bold tracking-wider">PIPELINE PROGRESS:</span>
-                      <span className="text-slate-200 font-bold">{percent}%</span>
-                    </div>
-                    <div className="flex-1 max-w-md h-1.5 bg-emerald-950/60 rounded-full overflow-hidden border border-emerald-900/20 relative">
-                      <div 
-                        className="h-full bg-gradient-to-r from-emerald-500 to-[#00ff66] rounded-full transition-all duration-500 ease-out shadow-[0_0_8px_rgba(0,255,102,0.5)]"
-                        style={{ width: `${percent}%` }}
-                      ></div>
-                    </div>
-                    <div className="text-emerald-500/50 shrink-0 text-right">
-                      <span>Est. remaining: {Math.max(0, 100 - percent) > 0 ? `${Math.ceil((100 - percent) * 0.35)}s` : 'Finishing...'}</span>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Chat log & outputs area */}
+              {chatTab === 'global' ? (
+                <>
+                  {/* Chat log & outputs area */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
                 {messages.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center p-8 max-w-lg mx-auto">
@@ -2577,28 +2728,28 @@ export default function App() {
                         headerColor = 'text-amber-400';
                         headerBg = 'bg-[#181205]';
                         isAgent = true;
-                        modelName = agentProfile?.model || plannerModel;
+                        modelName = agentProfile?.model || agentModels.planner;
                       } else if (msg.sender === 'coder') {
                         borderColor = 'border-[#00ff66]';
                         headerText = '💻 CODER';
                         headerColor = 'text-[#00ff66]';
                         headerBg = 'bg-[#05180f]';
                         isAgent = true;
-                        modelName = agentProfile?.model || coderModel;
+                        modelName = agentProfile?.model || agentModels.coder;
                       } else if (msg.sender === 'reviewer') {
                         borderColor = 'border-rose-500';
                         headerText = '🔍 REVIEWER';
                         headerColor = 'text-rose-400';
                         headerBg = 'bg-[#1c080b]';
                         isAgent = true;
-                        modelName = agentProfile?.model || reviewerModel;
+                        modelName = agentProfile?.model || agentModels.reviewer;
                       } else if (msg.sender === 'researcher') {
                         borderColor = 'border-sky-500';
                         headerText = '🌐 RESEARCHER';
                         headerColor = 'text-sky-400';
                         headerBg = 'bg-[#05121c]';
                         isAgent = true;
-                        modelName = agentProfile?.model || researcherModel;
+                        modelName = agentProfile?.model || agentModels.researcher;
                       } else if (msg.sender === 'memory') {
                         borderColor = 'border-purple-500';
                         headerText = '📚 MEMORY';
@@ -2642,6 +2793,89 @@ export default function App() {
                   </div>
                 )}
               </div>
+            </>
+          ) : (
+            <>
+              {/* Agent picker dropdown */}
+              <div className={`px-6 py-3.5 border-b border-emerald-900/30 ${theme === 'oled' ? 'bg-black' : 'bg-[#060e0a]'} flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0`}>
+                <div className="flex items-center gap-2">
+                  <MessageSquare size={14} className="text-[#00ff66]" />
+                  <span className="text-xs font-black tracking-wider font-mono uppercase text-emerald-300">Secure Direct Terminal Link</span>
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <span className="text-[10px] font-mono text-emerald-500/60 uppercase font-bold tracking-wider">TARGET AGENT:</span>
+                  <select
+                    value={privateAgentId}
+                    onChange={(e) => setPrivateAgentId(e.target.value as AgentId)}
+                    className="bg-[#020503] border border-emerald-800 text-emerald-400 focus:border-emerald-400 text-xs font-mono font-bold rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer"
+                  >
+                    {agents.map(a => (
+                      <option key={a.id} value={a.id}>
+                        {a.icon} {a.name} ({a.model})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Private messages scroll list */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {(privateMessages[privateAgentId] || []).length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-8 max-w-lg mx-auto">
+                    <div className="relative mb-6">
+                      <div className="absolute inset-0 bg-emerald-500/10 blur-2xl rounded-full scale-125 animate-pulse"></div>
+                      <div className="relative w-16 h-16 rounded-2xl border border-emerald-400/40 bg-[#020503] flex items-center justify-center shadow-lg shadow-emerald-500/15">
+                        <span className="text-3xl">{agents.find(a => a.id === privateAgentId)?.icon || '🤖'}</span>
+                      </div>
+                    </div>
+                    <h3 className="font-sans font-bold text-xl text-white mb-2">Direct Link: {agents.find(a => a.id === privateAgentId)?.name}</h3>
+                    <p className="text-slate-300 text-sm leading-relaxed font-sans mb-4">
+                      You are connected to a direct, secure channel with the <span className="font-bold text-[#00ff66]">{agents.find(a => a.id === privateAgentId)?.name}</span> agent, bypassing the full multi-agent pipeline.
+                    </p>
+                    <div className="text-[10px] font-mono text-emerald-500/70 border border-emerald-950 bg-emerald-950/15 rounded-lg px-4 py-2 max-w-xs text-left space-y-1">
+                      <div>• SYSTEM ROLE: {privateAgentId.toUpperCase()}</div>
+                      <div>• DIRECTIVES: Custom instruction payload</div>
+                      <div>• STATUS: SECURE DIRECT CONNECTION</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-6 max-w-5xl mx-auto">
+                    {(privateMessages[privateAgentId] || []).map((msg) => {
+                      const isUser = msg.sender === 'user';
+                      const agentProfile = agents.find(a => a.id === msg.sender);
+
+                      if (isUser) {
+                        return (
+                          <div key={msg.id} className="flex justify-end w-full">
+                            <div className="bg-[#0c1e14] border border-emerald-500/40 px-5 py-4 rounded-2xl max-w-[75%] shadow-md">
+                              <div className="flex items-center justify-between gap-4 mb-2 text-[10px] text-[#00ff66] font-mono font-bold">
+                                <span>👤 USER DIRECT PORT</span>
+                                <span className="text-emerald-400/50">{msg.timestamp}</span>
+                              </div>
+                              <p className="text-[14.5px] text-slate-100 leading-relaxed whitespace-pre-wrap font-sans">{msg.text}</p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div key={msg.id} className="flex justify-start w-full">
+                          <div className="bg-[#050c08] border border-emerald-500/20 px-5 py-4 rounded-2xl max-w-[75%] shadow-md">
+                            <div className="flex items-center justify-between gap-4 mb-2 text-[10px] text-emerald-400 font-mono font-bold">
+                              <span>{agentProfile?.icon || '🤖'} {agentProfile?.name.toUpperCase() || 'AGENT'} RESPONSE</span>
+                              <span className="text-emerald-400/50">{msg.timestamp}</span>
+                            </div>
+                            {renderMessageContent(msg)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div ref={messagesEndRef} />
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
               {/* Bottom error status block */}
               {runtimeError && (
@@ -2720,47 +2954,63 @@ export default function App() {
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
-                        startPipelineOrchestration();
+                        if (chatTab === 'private') {
+                          sendPrivateMessage();
+                        } else {
+                          startPipelineOrchestration();
+                        }
                       }
                     }}
-                    placeholder="Enter your project goal or refine current plan..."
+                    placeholder={chatTab === 'private' ? `Send private direct message to ${agents.find(a => a.id === privateAgentId)?.name || 'agent'}...` : "Enter your project goal or refine current plan..."}
                     rows={2}
                     className="flex-1 bg-[#010302] border border-emerald-900 focus:border-emerald-400 rounded-xl px-4 py-3.5 text-[14px] focus:outline-none text-slate-100 placeholder-emerald-800/80 resize-none transition-all pr-32 font-sans shadow-inner"
-                    disabled={pipelineIsRunning}
+                    disabled={pipelineIsRunning || privateIsSending}
                   />
                   <div className="flex flex-col gap-2 shrink-0">
                     {pipelineIsRunning ? (
                       <button
                         onClick={stopPipelineOrchestration}
-                        className="h-11 px-5 rounded-xl font-bold text-xs font-mono tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 border bg-rose-950/45 hover:bg-rose-900/35 text-rose-200 border-rose-500/40 hover:border-rose-300 shadow-md animate-pulse active:scale-95 transition-transform"
+                        className="h-11 w-11 rounded-xl font-bold text-xs font-mono tracking-wider transition-all cursor-pointer flex items-center justify-center border bg-rose-950/45 hover:bg-rose-900/35 text-rose-200 border-rose-500/40 hover:border-rose-300 shadow-md animate-pulse active:scale-95 transition-transform"
                         title="Abort active agent orchestration pipeline"
                       >
                         <AlertCircle size={14} className="text-rose-400" />
-                        <span>STOP RUN</span>
+                      </button>
+                    ) : privateIsSending ? (
+                      <button
+                        disabled
+                        className="h-11 w-11 rounded-xl font-bold text-xs font-mono tracking-wider border bg-emerald-950/20 border-emerald-900/60 text-emerald-800 flex items-center justify-center"
+                        title="Sending..."
+                      >
+                        <span className="w-2 h-2 rounded-full bg-[#00ff66] animate-pulse"></span>
                       </button>
                     ) : (
                       <button
-                        onClick={() => startPipelineOrchestration()}
+                        onClick={() => {
+                          if (chatTab === 'private') {
+                            sendPrivateMessage();
+                          } else {
+                            startPipelineOrchestration();
+                          }
+                        }}
                         disabled={!userPrompt.trim()}
-                        className={`h-11 px-5 rounded-xl font-bold text-xs font-mono tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 border ${
+                        className={`h-11 w-11 rounded-xl font-bold text-xs font-mono tracking-wider transition-all cursor-pointer flex items-center justify-center border ${
                           !userPrompt.trim()
                             ? 'bg-emerald-950/20 border-emerald-900/60 text-emerald-800' 
                             : 'bg-[#10b981]/20 hover:bg-[#10b981]/30 text-white border-emerald-500/40 hover:border-emerald-400 shadow-md'
                         }`}
+                        title={chatTab === 'private' ? 'DIRECT SEND' : 'SEND TASK'}
                       >
                         <Play size={14} className="fill-current text-[#00ff66]" />
-                        <span>SEND TASK</span>
                       </button>
                     )}
                     {messages.length > 0 && (
                       <button
                         onClick={clearHistory}
                         disabled={pipelineIsRunning}
-                        className="h-9 px-3 rounded-xl border border-emerald-900 hover:border-rose-500/40 hover:bg-rose-950/15 text-emerald-500/60 hover:text-rose-400 transition-all cursor-pointer text-[10px] flex items-center justify-center gap-1.5 uppercase font-bold"
-                        title="Clear conversation logs"
+                        className="h-9 w-9 rounded-xl border border-emerald-900 hover:border-rose-500/40 hover:bg-rose-950/15 text-emerald-500/60 hover:text-rose-400 transition-all cursor-pointer flex items-center justify-center font-bold"
+                        title="Clear conversation logs (RESET OS)"
                       >
                         <Trash2 size={12} />
-                        <span>RESET OS</span>
                       </button>
                     )}
                   </div>
@@ -2790,11 +3040,11 @@ export default function App() {
               {/* Models Config Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
-                {/* Section: Ollama Settings */}
+                {/* Section: Agent Configuration */}
                 <div className="p-6 rounded-2xl border border-emerald-950 bg-[#080d0a] space-y-4">
                   <div className="flex items-center gap-2 pb-2 border-b border-emerald-950">
                     <Terminal size={16} className="text-emerald-400" />
-                    <h3 className="font-display font-semibold text-sm text-white">Local Parameters</h3>
+                    <h3 className="font-display font-semibold text-sm text-white">Model Configuration</h3>
                   </div>
                   
                   <div className="space-y-3.5">
@@ -2812,162 +3062,130 @@ export default function App() {
                     <div className="space-y-4 pt-2">
                       <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider">Agent Model Assignment</label>
                       
-                      <div className="grid grid-cols-1 gap-3.5">
-                        {/* Planner Model Assignment Selector */}
-                        <div className="space-y-1">
-                          <label className="block text-[11px] text-emerald-500/70 font-bold uppercase">🧠 Planner Model</label>
-                          <select
-                            value={installedOllamaModels.includes(plannerModel) ? plannerModel : 'custom'}
-                            onChange={(e) => {
-                              if (e.target.value !== 'custom') {
-                                setPlannerModel(e.target.value);
-                              }
-                            }}
-                            className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
-                          >
-                            {installedOllamaModels.map(m => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                            <option value="custom">-- Custom model name --</option>
-                          </select>
-                          {(!installedOllamaModels.includes(plannerModel)) && (
-                            <input
-                              type="text"
-                              value={plannerModel}
-                              onChange={(e) => setPlannerModel(e.target.value)}
-                              placeholder="Type custom model name..."
-                              className="w-full mt-1.5 rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
-                            />
-                          )}
-                        </div>
-
-                        {/* Coder Model Assignment Selector */}
-                        <div className="space-y-1">
-                          <label className="block text-[11px] text-emerald-500/70 font-bold uppercase">💻 Coder Model</label>
-                          <select
-                            value={installedOllamaModels.includes(coderModel) ? coderModel : 'custom'}
-                            onChange={(e) => {
-                              if (e.target.value !== 'custom') {
-                                setCoderModel(e.target.value);
-                              }
-                            }}
-                            className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
-                          >
-                            {installedOllamaModels.map(m => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                            <option value="custom">-- Custom model name --</option>
-                          </select>
-                          {(!installedOllamaModels.includes(coderModel)) && (
-                            <input
-                              type="text"
-                              value={coderModel}
-                              onChange={(e) => setCoderModel(e.target.value)}
-                              placeholder="Type custom model name..."
-                              className="w-full mt-1.5 rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
-                            />
-                          )}
-                        </div>
-
-                        {/* Reviewer Model Assignment Selector */}
-                        <div className="space-y-1">
-                          <label className="block text-[11px] text-emerald-500/70 font-bold uppercase">🔍 Reviewer Model</label>
-                          <select
-                            value={installedOllamaModels.includes(reviewerModel) ? reviewerModel : 'custom'}
-                            onChange={(e) => {
-                              if (e.target.value !== 'custom') {
-                                setReviewerModel(e.target.value);
-                              }
-                            }}
-                            className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
-                          >
-                            {installedOllamaModels.map(m => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                            <option value="custom">-- Custom model name --</option>
-                          </select>
-                          {(!installedOllamaModels.includes(reviewerModel)) && (
-                            <input
-                              type="text"
-                              value={reviewerModel}
-                              onChange={(e) => setReviewerModel(e.target.value)}
-                              placeholder="Type custom model name..."
-                              className="w-full mt-1.5 rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
-                            />
-                          )}
-                        </div>
-
-                        {/* Researcher Model Assignment Selector */}
-                        <div className="space-y-1">
-                          <label className="block text-[11px] text-emerald-500/70 font-bold uppercase">🌐 Researcher Model</label>
-                          <select
-                            value={installedOllamaModels.includes(researcherModel) ? researcherModel : 'custom'}
-                            onChange={(e) => {
-                              if (e.target.value !== 'custom') {
-                                setResearcherModel(e.target.value);
-                              }
-                            }}
-                            className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
-                          >
-                            {installedOllamaModels.map(m => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                            <option value="custom">-- Custom model name --</option>
-                          </select>
-                          {(!installedOllamaModels.includes(researcherModel)) && (
-                            <input
-                              type="text"
-                              value={researcherModel}
-                              onChange={(e) => setResearcherModel(e.target.value)}
-                              placeholder="Type custom model name..."
-                              className="w-full mt-1.5 rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
-                            />
-                          )}
-                        </div>
-
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 max-h-96 overflow-y-auto pr-2 no-scrollbar">
+                        {agents.map((agent) => {
+                          const presets = engine === 'gemini' 
+                            ? ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-2.0-flash']
+                            : engine === 'openai' 
+                              ? ['gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o1-preview']
+                              : engine === 'openrouter'
+                                ? ['anthropic/claude-3.5-sonnet', 'google/gemini-pro-1.5', 'meta-llama/llama-3.1-8b-instruct', 'openai/gpt-4o']
+                                : installedOllamaModels;
+                          
+                          return (
+                            <div key={agent.id} className="space-y-1">
+                              <label className="block text-[11px] text-emerald-500/70 font-bold uppercase">{agent.icon} {agent.name}</label>
+                              <select
+                                value={presets.includes(agentModels[agent.id]) ? agentModels[agent.id] : 'custom'}
+                                onChange={(e) => {
+                                  if (e.target.value !== 'custom') {
+                                    setAgentModels(prev => {
+                                      const next = { ...prev, [agent.id]: e.target.value };
+                                      localStorage.setItem('joelos_agent_models', JSON.stringify(next));
+                                      return next;
+                                    });
+                                  }
+                                }}
+                                className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
+                              >
+                                {presets.map(m => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))}
+                                <option value="custom">-- Custom model name --</option>
+                              </select>
+                              {(!presets.includes(agentModels[agent.id])) && (
+                                <input
+                                  type="text"
+                                  value={agentModels[agent.id] || ''}
+                                  onChange={(e) => {
+                                    setAgentModels(prev => {
+                                      const next = { ...prev, [agent.id]: e.target.value };
+                                      localStorage.setItem('joelos_agent_models', JSON.stringify(next));
+                                      return next;
+                                    });
+                                  }}
+                                  placeholder="Type custom model name..."
+                                  className="w-full mt-1.5 rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Section: Gemini Cloud Engine Settings */}
+                {/* Section: Cloud Engine Settings */}
                 <div className="p-6 rounded-2xl border border-emerald-950 bg-[#080d0a] space-y-4">
                   <div className="flex items-center gap-2 pb-2 border-b border-emerald-950">
                     <Sparkles size={16} className="text-emerald-400" />
-                    <h3 className="font-display font-semibold text-sm text-white">Cloud Parameters</h3>
+                    <h3 className="font-display font-semibold text-sm text-white">Cloud API Keys</h3>
                   </div>
 
                   <div className="space-y-4 text-xs">
                     <div className="p-3 rounded-lg bg-emerald-950/15 border border-emerald-500/10 space-y-1 text-emerald-300 leading-relaxed text-[11px]">
-                      <span className="font-bold text-emerald-300 block">Server-Side Credentials Auto-Injected</span>
-                      JoelOS will securely authorize Gemini requests on the server using your configured <span className="font-mono text-emerald-400">GEMINI_API_KEY</span>. No credentials leaked to browser.
+                      <span className="font-bold text-emerald-300 block">Custom Providers</span>
+                      Provide an API key to use models from OpenAI, OpenRouter, or Gemini Cloud instead of local execution.
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs font-mono text-emerald-400/80 mb-1.5">Active Engine</label>
+                      <select
+                        value={engine}
+                        onChange={(e) => setEngine(e.target.value as any)}
+                        className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value="gemini">Google Gemini AI</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="openrouter">OpenRouter (Nvidia, Anthropic, etc)</option>
+                        <option value="ollama">Ollama (Local Models)</option>
+                      </select>
                     </div>
 
-                    <div className="flex items-center justify-between p-3 rounded-lg bg-[#0a0f0c]/60 border border-emerald-950">
+                    {engine !== 'ollama' && (
+                      <div className="space-y-2">
+                        <label className="block text-[11px] text-emerald-500/70 font-bold uppercase">
+                          {engine === 'gemini' ? 'Gemini API Key' : engine === 'openai' ? 'OpenAI API Key' : 'OpenRouter API Key'}
+                        </label>
+                        <input
+                          type="password"
+                          value={cloudApiKey}
+                          onChange={(e) => {
+                            setCloudApiKey(e.target.value);
+                            localStorage.setItem('joelos_cloud_api_key', e.target.value);
+                          }}
+                          placeholder={engine === 'gemini' ? 'Leave empty to use server .env' : 'sk-...'}
+                          className="w-full mt-1.5 rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-[#0a0f0c]/60 border border-emerald-950 mt-4">
                       <div>
                         <span className="font-semibold block text-slate-200">Google Search Grounding</span>
-                        <span className="text-[10px] text-emerald-500/60">Enables real-time queries through Google Search indexing.</span>
+                        <span className="text-[10px] text-emerald-500/60">Only supported on Gemini engine.</span>
                       </div>
                       <input
                         type="checkbox"
                         checked={searchGrounding}
                         onChange={(e) => setSearchGrounding(e.target.checked)}
-                        className="w-4 h-4 text-emerald-600 border-emerald-950 rounded focus:ring-emerald-500 cursor-pointer"
+                        disabled={engine !== 'gemini'}
+                        className="w-4 h-4 text-emerald-600 border-emerald-950 rounded focus:ring-emerald-500 cursor-pointer disabled:opacity-50"
                       />
                     </div>
 
-                    <div className="space-y-2">
-                      <span className="font-semibold text-emerald-300">Target Models Map:</span>
-                      <div className="space-y-1 text-[11px] text-emerald-500/60 font-mono">
-                        <div className="flex justify-between border-b border-emerald-950/60 py-1">
-                          <span>Researcher / Reviewer / Planner:</span>
-                          <span className="text-slate-200 font-bold">gemini-2.5-flash</span>
-                        </div>
-                        <div className="flex justify-between py-1">
-                          <span>Coder Reasoning:</span>
-                          <span className="text-emerald-400 font-bold">gemini-2.5-pro</span>
-                        </div>
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-[#0a0f0c]/60 border border-emerald-950 mt-4">
+                      <div>
+                        <span className="font-semibold block text-slate-200">Audio Notifications</span>
+                        <span className="text-[10px] text-emerald-500/60">Play chime sounds on agent events.</span>
                       </div>
+                      <input
+                        type="checkbox"
+                        checked={soundEnabled}
+                        onChange={(e) => setSoundEnabled(e.target.checked)}
+                        className="w-4 h-4 text-emerald-600 border-emerald-950 rounded focus:ring-emerald-500 cursor-pointer"
+                      />
                     </div>
                   </div>
                 </div>
@@ -3025,7 +3243,11 @@ export default function App() {
                   <button
                     onClick={() => {
                       if (window.confirm('Delete all stored workspace memory structures? This action cannot be undone.')) {
-                        localStorage.removeItem('joelos_memories');
+                        fetch('/api/memory', {
+                          method: 'POST',
+                          body: JSON.stringify({ items: [] }),
+                          headers: { 'Content-Type': 'application/json' }
+                        }).catch(err => console.error('Error purging memories:', err));
                         setMemories([]);
                         setMatchedMemories([]);
                       }
@@ -3038,7 +3260,7 @@ export default function App() {
                 </div>
                 
                 <p className="text-xs text-emerald-500/60 leading-relaxed">
-                  Every complete multi-agent pipeline workflow is indexed to local browser storage (<span className="font-mono">localStorage</span>) as highly scannable contextual metadata blocks. Memory utilizes a high-performance Cosine Similarity calculation to check relevancy on query recall, feeding history directly into upcoming pipelines automatically.
+                  Every complete multi-agent pipeline workflow is indexed to a persistent cloud-backed memory storage (<span className="font-mono">brain.json</span>) as highly scannable contextual metadata blocks. Memory utilizes a high-performance Cosine Similarity calculation to check relevancy on query recall, feeding history directly into upcoming pipelines automatically.
                 </p>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
@@ -3128,9 +3350,16 @@ export default function App() {
           <button
             onClick={() => setActiveTab('pipeline')}
             className={`w-10 h-10 rounded-lg flex flex-col justify-center items-center transition-all ${activeTab === 'pipeline' ? 'bg-[#10b981]/25 text-emerald-200 border border-[#10b981]/40 shadow-sm' : 'text-emerald-600 hover:text-emerald-400 hover:bg-[#10b981]/5'}`}
-            title="Pipeline"
+            title="Chat"
           >
-            <Terminal size={18} />
+            <MessageSquare size={18} />
+          </button>
+          <button
+            onClick={() => setIsPipelineDrawerOpen(true)}
+            className={`w-10 h-10 rounded-lg flex flex-col justify-center items-center transition-all text-emerald-600 hover:text-emerald-400 hover:bg-[#10b981]/5`}
+            title="Execution Pipeline Graph"
+          >
+            <Workflow size={18} />
           </button>
           <button
             onClick={() => setActiveTab('settings')}
@@ -3164,6 +3393,168 @@ export default function App() {
         </aside>
 
       </div>
+
+      {/* Execution Pipeline Drawer Panel */}
+      <AnimatePresence>
+        {isPipelineDrawerOpen && (
+          <div className="fixed inset-y-0 right-0 z-40 pointer-events-none flex justify-end w-full">
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className={`relative h-full w-full sm:w-80 md:w-96 shadow-2xl flex flex-col ${
+                theme === 'oled' ? 'bg-[#000000]' : 'bg-[#050c08]'
+              } border-l border-emerald-900/30 overflow-hidden font-mono pointer-events-auto`}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between shrink-0 p-5 border-b border-emerald-900/30">
+                <div className="flex items-center gap-3">
+                  <h3 className="text-xs uppercase tracking-widest text-emerald-300 font-bold flex items-center gap-2 px-2.5 py-1 rounded bg-[#0b2114] border border-emerald-500/25">
+                    <Workflow size={13} className="text-[#00ff66]" />
+                    <span>Execution Pipeline</span>
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setIsPipelineDrawerOpen(false)}
+                  className="p-1.5 rounded-lg text-emerald-500 hover:text-white hover:bg-emerald-950/40 transition-all cursor-pointer"
+                  title="Close Pipeline Drawer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Active Execution Pipeline Visualizer */}
+              <div className="flex-1 overflow-y-auto flex flex-col p-5">
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-emerald-900/30">
+                  <div className="flex items-center gap-2 text-emerald-400">
+                    <Terminal size={14} />
+                    <span className="text-[10px] font-black tracking-wider uppercase">Orchestrator Sequence</span>
+                  </div>
+                  {pipelineIsRunning && (
+                    <button
+                      onClick={stopPipelineOrchestration}
+                      className="w-7 h-7 flex items-center justify-center rounded bg-rose-950/70 hover:bg-rose-900/60 text-rose-200 border border-rose-500/50 cursor-pointer animate-pulse transition-all active:scale-95"
+                      title="Halt active agent execution immediately"
+                    >
+                      <AlertCircle size={14} className="text-rose-400" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Vertical Nodes container */}
+                <div className="flex flex-col gap-0 items-start relative pb-4 border-b border-emerald-900/30">
+                  {/* Vertical connecting line */}
+                  <div className="absolute left-[15px] top-[15px] bottom-[15px] w-[2px] bg-emerald-950/40 z-0"></div>
+                  
+                  {pipelineNodes.map((node, index) => {
+                    let statusColor = 'bg-emerald-950/10 border-emerald-950 text-emerald-600/60';
+                    let glow = '';
+                    if (node.status === 'active') {
+                      statusColor = 'bg-emerald-900/25 border-emerald-400 text-white animate-pulse';
+                      glow = 'shadow-[0_0_12px_rgba(0,255,102,0.35)]';
+                    } else if (node.status === 'completed') {
+                      statusColor = 'bg-[#0a1f13] border-emerald-500/50 text-emerald-300';
+                      glow = 'shadow-[0_0_8px_rgba(16,185,129,0.2)]';
+                    } else if (node.status === 'error') {
+                      statusColor = 'bg-[#2a0b10] border-rose-500 text-rose-300';
+                      glow = 'shadow-[0_0_12px_rgba(244,63,94,0.4)]';
+                    } else if (node.status === 'skipped') {
+                      statusColor = 'bg-slate-900/50 border-slate-700/50 text-slate-500';
+                    }
+
+                    return (
+                      <div key={node.id} className="flex items-center gap-3 w-full group relative z-10 py-3">
+                        <span className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 bg-[#020503] ${
+                          node.status === 'completed' ? 'border-emerald-400 shadow-[0_0_8px_rgba(0,255,102,0.6)]' :
+                          node.status === 'active' ? 'border-[#00ff66] animate-pulse shadow-[0_0_10px_rgba(0,255,102,0.8)]' :
+                          node.status === 'error' ? 'border-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]' :
+                          node.status === 'skipped' ? 'border-slate-700' : 'border-emerald-900/50'
+                        }`}>
+                          {node.status === 'completed' && <Check size={12} className="text-emerald-400" />}
+                          {node.status === 'active' && <div className="w-2.5 h-2.5 bg-[#00ff66] rounded-full animate-ping"></div>}
+                          {node.status === 'error' && <X size={12} className="text-rose-500" />}
+                          {node.status === 'pending' && <div className="w-1.5 h-1.5 bg-emerald-800 rounded-full"></div>}
+                          {node.status === 'skipped' && <span className="text-[10px] text-slate-500 font-bold">-</span>}
+                        </span>
+                        
+                        <button
+                          onClick={() => setSelectedNodeContextId(prev => prev === node.id ? null : node.id)}
+                          className={`flex-1 flex flex-col items-start px-3 py-2 rounded-xl border text-xs font-mono font-bold transition-all duration-300 cursor-pointer text-left focus:outline-none ${statusColor} ${glow} ${selectedNodeContextId === node.id ? 'ring-2 ring-emerald-400 border-transparent shadow-[0_0_15px_rgba(16,185,129,0.4)]' : ''}`}
+                          title={`Click to view run summary for ${node.label}`}
+                        >
+                          <span className="uppercase text-[11px] font-black tracking-wider">{node.label}</span>
+                          <span className="text-[9px] opacity-70 font-sans mt-0.5 line-clamp-1">{
+                            node.id === 'researcher' ? 'Gathers live internet data' : 
+                            node.id === 'planner' ? 'Drafts system architecture blueprint' : 
+                            node.id === 'coder' ? 'Compiles application source code' : 
+                            node.id === 'reviewer' ? 'Audits codebase for quality & bugs' : 'Agent task'
+                          }</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Global Progress */}
+                {pipelineIsRunning && (() => {
+                  const completedCount = pipelineNodes.filter(n => n.status === 'completed').length;
+                  const activeCount = pipelineNodes.filter(n => n.status === 'active').length;
+                  const percent = Math.min(100, Math.round(((completedCount + activeCount * 0.5) / pipelineNodes.length) * 100));
+                  return (
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between text-[10px] mb-2 font-mono">
+                        <span className="text-[#00ff66] uppercase font-bold tracking-wider">Progress</span>
+                        <span className="text-emerald-400 font-bold">{percent}%</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-emerald-950/60 rounded-full overflow-hidden border border-emerald-900/20">
+                        <div 
+                          className="h-full bg-gradient-to-r from-emerald-500 to-[#00ff66] rounded-full transition-all duration-500 ease-out shadow-[0_0_8px_rgba(0,255,102,0.5)]"
+                          style={{ width: `${percent}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Selected Node Context inline */}
+                {selectedNodeContextId && (() => {
+                  const node = pipelineNodes.find(n => n.id === selectedNodeContextId);
+                  const context = nodeContexts[selectedNodeContextId];
+                  if (!node) return null;
+                  return (
+                    <div className={`mt-4 p-3 rounded-xl border border-emerald-500/30 shadow-lg ${theme === 'oled' ? 'bg-[#050505]' : 'bg-[#09110d]'} text-xs animate-in fade-in slide-in-from-top-2 duration-200 flex-shrink-0`}>
+                      <div className="flex items-center justify-between border-b border-emerald-900/30 pb-2 mb-2">
+                        <span className="font-bold text-emerald-300 uppercase truncate text-[10px]">{node.label} Context</span>
+                        <button 
+                          onClick={() => setSelectedNodeContextId(null)}
+                          className="text-emerald-500 hover:text-white transition-colors cursor-pointer p-0.5 ml-2"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                      <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
+                        <div>
+                          <span className="text-[10px] text-emerald-500/60 uppercase font-black block mb-1">Target / Input Context:</span>
+                          <p className="text-slate-200 text-[10px] leading-relaxed bg-black/40 p-2 rounded border border-emerald-950/40">
+                            {context ? context.input : `No input context. Awaiting activation...`}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-emerald-500/60 uppercase font-black block mb-1">Payload / Streamed Output:</span>
+                          <pre className="text-emerald-300 text-[10px] leading-relaxed bg-black/60 p-2 rounded border border-emerald-950/60 whitespace-pre-wrap overflow-x-auto font-mono max-h-24">
+                            {context ? context.output : (node.status === 'active' ? 'Synthesizing output stream...' : 'Waiting to capture output payload from current run.')}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Keyboard Shortcuts Modal Overlay */}
       {shortcutsOpen && (
@@ -3352,5 +3743,6 @@ export default function App() {
         />
       )}
     </div>
+    </SidebarProvider>
   );
 }

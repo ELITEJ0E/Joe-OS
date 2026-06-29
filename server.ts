@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 
@@ -72,9 +73,27 @@ function getLocalEmbeddingVector(text: string): number[] {
   return vec;
 }
 
+const BRAIN_FILE = path.join(process.cwd(), 'brain.json');
+
 // REST API Routes
 app.get('/api/health', (req, res) => {
   res.json({ status: 'healthy', geminiAvailable: !!ai });
+});
+
+app.get('/api/memory', (req, res) => {
+  try {
+    if (!fs.existsSync(BRAIN_FILE)) return res.json([]);
+    const data = JSON.parse(fs.readFileSync(BRAIN_FILE, 'utf-8'));
+    res.json(data);
+  } catch { res.json([]); }
+});
+
+app.post('/api/memory', (req, res) => {
+  try {
+    const items = req.body.items;
+    fs.writeFileSync(BRAIN_FILE, JSON.stringify(items, null, 2));
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // Endpoint for generating embeddings (either Gemini or Local Vector)
@@ -131,10 +150,16 @@ app.post('/api/pull', async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
 
   try {
+    const controller = new AbortController();
+    req.on('close', () => {
+      controller.abort();
+    });
+
     const response = await fetch(`${ollamaUrl}/api/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, stream: true }),
+      signal: controller.signal
     });
 
     if (!response.ok) {
@@ -164,6 +189,10 @@ app.post('/api/pull', async (req, res) => {
     }
     return res.end();
   } catch (err: any) {
+    if (err.name === 'AbortError') {
+      console.log('Client aborted pull request.');
+      return res.end();
+    }
     console.error('Error in pull proxy:', err);
     res.write(`data: ${JSON.stringify({ status: 'error', error: err.message })}\n\n`);
     return res.end();
@@ -195,8 +224,12 @@ app.post('/api/chat', async (req, res) => {
 
   // Mode: Gemini Cloud Engine
   if (engine === 'gemini') {
-    if (!ai) {
-      const errMsg = 'Gemini API client not initialized. Ensure GEMINI_API_KEY is configured in your Secrets.';
+    // If a custom cloud API key was provided, construct a temporary client, else use env injected client
+    const targetKey = req.body.cloudApiKey || process.env.GEMINI_API_KEY;
+    const targetClient = req.body.cloudApiKey ? new GoogleGenAI({ apiKey: targetKey }) : ai;
+    
+    if (!targetClient) {
+      const errMsg = 'Gemini API client not initialized. Provide an API key in settings or backend env.';
       if (stream) {
         res.write(`data: ${JSON.stringify({ error: errMsg })}\n\n`);
         return res.end();
@@ -207,8 +240,6 @@ app.post('/api/chat', async (req, res) => {
 
     try {
       // Map Ollama / Generic models to correct Gemini models
-      // User requested models: Planner: qwen3:4b, Coder: qwen2.5-coder:14b, Reviewer: llama3.1:8b, Researcher: llama3.1:8b
-      // We map them to appropriate high-quality Gemini models:
       let mappedModel = 'gemini-2.5-flash';
       if (model?.toLowerCase().includes('coder') || model?.toLowerCase().includes('14b') || model?.toLowerCase().includes('pro')) {
         mappedModel = 'gemini-2.5-pro'; // Premium coder reasoning
@@ -229,7 +260,7 @@ app.post('/api/chat', async (req, res) => {
       }
 
       if (stream) {
-        const streamResponse = await ai.models.generateContentStream({
+        const streamResponse = await targetClient.models.generateContentStream({
           model: mappedModel,
           contents,
           config,
@@ -241,7 +272,7 @@ app.post('/api/chat', async (req, res) => {
         }
         return res.end();
       } else {
-        const response = await ai.models.generateContent({
+        const response = await targetClient.models.generateContent({
           model: mappedModel,
           contents,
           config,
@@ -251,6 +282,88 @@ app.post('/api/chat', async (req, res) => {
     } catch (error: any) {
       console.error('Gemini execution error:', error);
       const errMsg = error.message || 'Unknown error occurred during Gemini call';
+      if (stream) {
+        res.write(`data: ${JSON.stringify({ error: errMsg })}\n\n`);
+        return res.end();
+      } else {
+        return res.status(500).json({ error: errMsg });
+      }
+    }
+  }
+  
+  // Mode: OpenAI compatible / OpenRouter
+  if (engine === 'openai' || engine === 'openrouter') {
+    try {
+      const apiKey = req.body.cloudApiKey;
+      if (!apiKey) {
+        throw new Error(`API key is required for ${engine}`);
+      }
+      
+      const baseUrl = engine === 'openrouter' ? 'https://openrouter.ai/api/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions';
+      
+      const formattedMessages = messages.map((m: any) => ({
+        role: m.role === 'model' ? 'assistant' : m.role,
+        content: m.content,
+      }));
+      if (systemInstruction) {
+        formattedMessages.unshift({ role: 'system', content: systemInstruction });
+      }
+
+      const response = await fetch(baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          ...(engine === 'openrouter' ? { 'HTTP-Referer': 'https://joelos.ai', 'X-Title': 'JoelOS' } : {})
+        },
+        body: JSON.stringify({
+          model: model || (engine === 'openai' ? 'gpt-4o' : 'qwen/qwen-2.5-coder-32b-instruct'),
+          messages: formattedMessages,
+          stream,
+        })
+      });
+
+      if (!response.ok) {
+        const txt = await response.text();
+        throw new Error(`API returned status ${response.status}: ${txt}`);
+      }
+
+      if (stream) {
+        if (!response.body) throw new Error('Response body empty');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.trim() === 'data: [DONE]') continue;
+            if (line.startsWith('data: ')) {
+              try {
+                const parsed = JSON.parse(line.substring(6));
+                const text = parsed.choices?.[0]?.delta?.content || '';
+                if (text) {
+                  res.write(`data: ${JSON.stringify({ text })}\n\n`);
+                }
+              } catch (e) { }
+            }
+          }
+        }
+        return res.end();
+      } else {
+        const data = await response.json();
+        return res.json({ text: data.choices?.[0]?.message?.content || '' });
+      }
+
+    } catch (error: any) {
+      console.error(`${engine} execution error:`, error);
+      const errMsg = error.message || `Unknown error during ${engine} call`;
       if (stream) {
         res.write(`data: ${JSON.stringify({ error: errMsg })}\n\n`);
         return res.end();
