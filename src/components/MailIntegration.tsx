@@ -41,6 +41,7 @@ export function MailIntegration({ onSuggestReply, isAiThinking }: MailIntegratio
 
   const handleLogin = async () => {
     setIsLoggingIn(true);
+    setError(null);
     try {
       const result = await googleSignIn();
       if (result) {
@@ -152,25 +153,26 @@ export function MailIntegration({ onSuggestReply, isAiThinking }: MailIntegratio
 
   if (needsAuth) {
     return (
-      <div className="flex flex-col items-center justify-center h-full space-y-6 text-center px-4">
-        <div className="bg-emerald-950/30 p-6 rounded-full border border-emerald-900/50">
-          <Mail size={48} className="text-emerald-500" />
+      <div className="flex flex-col items-center justify-center h-full space-y-6 text-center px-4 max-w-lg mx-auto py-12">
+        <div className="bg-[#00ff66]/5 p-6 rounded-full border border-[#00ff66]/20 shadow-[0_0_20px_rgba(0,255,102,0.05)]">
+          <Mail size={48} className="text-[#00ff66]" />
         </div>
         <div>
-          <h2 className="text-xl font-bold font-mono text-emerald-300 mb-2">Workspace Integration</h2>
-          <p className="text-emerald-500/70 text-sm max-w-md mx-auto mb-6">
+          <h2 className="text-xl font-bold font-mono text-emerald-300 mb-2 uppercase tracking-widest">Workspace Integration</h2>
+          <p className="text-emerald-500/70 text-xs max-w-md mx-auto">
             Connect your Gmail account to enable AI-powered email drafting, smart summaries, and autonomous inbox management.
           </p>
         </div>
+
         <button 
           onClick={handleLogin} 
           disabled={isLoggingIn}
-          className="flex items-center gap-3 bg-white text-gray-800 px-6 py-3 rounded-lg font-medium hover:bg-gray-100 transition-colors shadow-lg disabled:opacity-70"
+          className="w-full flex items-center justify-center gap-3 bg-white text-gray-900 py-3 rounded-lg font-bold hover:bg-gray-100 transition-colors shadow-lg disabled:opacity-70 cursor-pointer text-sm font-mono"
         >
           {isLoggingIn ? (
-            <RefreshCw className="animate-spin text-gray-500" size={20} />
+            <RefreshCw className="animate-spin text-gray-500" size={18} />
           ) : (
-            <svg viewBox="0 0 48 48" width="20" height="20">
+            <svg viewBox="0 0 48 48" width="18" height="18">
               <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
               <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
               <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
@@ -178,9 +180,40 @@ export function MailIntegration({ onSuggestReply, isAiThinking }: MailIntegratio
               <path fill="none" d="M0 0h48v48H0z"></path>
             </svg>
           )}
-          <span>{isLoggingIn ? 'Connecting...' : 'Sign in with Google'}</span>
+          <span>{isLoggingIn ? 'CONNECTING TO GMAIL...' : 'SIGN IN WITH GOOGLE'}</span>
         </button>
-        {error && <p className="text-red-400 text-sm mt-4 font-mono">{error}</p>}
+        {error && <p className="text-red-400 text-xs mt-2 font-mono bg-red-950/20 border border-red-950 p-2.5 rounded-lg w-full text-left">{error}</p>}
+
+        {/* Beautiful GCP OAuth Test Users Guide */}
+        <div className="w-full bg-[#050a08] border border-emerald-950 rounded-xl p-4 space-y-3 text-left font-mono text-[11px] leading-relaxed text-emerald-500/80 mt-2">
+          <span className="text-emerald-400 font-bold uppercase tracking-wider block border-b border-emerald-950/60 pb-1.5 flex items-center gap-1.5">
+            <AlertCircle size={12} className="text-amber-500 shrink-0" />
+            OAuth Verification Bypass Guide
+          </span>
+          <p>
+            Google restricts unverified OAuth applications (like test Firebase environments) to pre-registered test accounts. To authorize <strong className="text-emerald-300">benjoel.tan1@gmail.com</strong> or any other email:
+          </p>
+          <ol className="list-decimal list-inside space-y-2 text-emerald-400/90 pl-1">
+            <li>
+              Go to the <a href="https://console.cloud.google.com/" target="_blank" rel="noopener noreferrer" className="text-[#00ff66] underline hover:text-[#00ff88]">Google Cloud Console</a>.
+            </li>
+            <li>
+              Select your Cloud / Firebase project (e.g. <span className="text-emerald-300">distributed-unfolding-kd2jw</span>).
+            </li>
+            <li>
+              Navigate to <strong className="text-emerald-300">APIs & Services</strong> &gt; <strong className="text-emerald-300">OAuth consent screen</strong>.
+            </li>
+            <li>
+              Scroll down to the <strong className="text-emerald-300">Test users</strong> section and click <strong className="text-[#00ff66]">+ Add Users</strong>.
+            </li>
+            <li>
+              Enter <code className="bg-emerald-950/60 px-1 py-0.5 rounded text-emerald-200">benjoel.tan1@gmail.com</code> (or other emails) and click <strong className="text-emerald-300">Save</strong>.
+            </li>
+          </ol>
+          <div className="pt-1.5 border-t border-emerald-950/60 text-[10px] text-emerald-500/60">
+            Once saved, any Google account added to this list will be allowed to log in instantly.
+          </div>
+        </div>
       </div>
     );
   }

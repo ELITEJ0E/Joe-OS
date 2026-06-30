@@ -36,13 +36,22 @@ import {
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
-  Workflow
+  Workflow,
+  LayoutDashboard,
+  Trello,
+  Bot,
+  Calendar,
+  History,
+  Plus,
+  CheckSquare,
+  Briefcase
 } from 'lucide-react';
 import { SidebarProvider, Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarHeader, SidebarFooter, SidebarTrigger } from '../components/ui/sidebar';
 import { ModelHub } from './components/ModelHub';
 import { MailIntegration } from './components/MailIntegration';
-import { Agent, AgentId, PipelineNode, Message, MemoryItem, OllamaModelInfo } from './types';
-import { Select, SelectContent, SelectItem, SelectTrigger } from '../components/ui/select';
+import { Agent, AgentId, PipelineNode, Message, MemoryItem, OllamaModelInfo, OpsTask, ActivityEntry, Alert, KpiMetric, TaskStatus } from './types';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Switch } from '../components/ui/switch';
 import Markdown from 'react-markdown';
 import { useSidebar } from '../components/ui/sidebar';
 
@@ -229,7 +238,73 @@ export default function App() {
   const [userPrompt, setUserPrompt] = useState<string>('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
-  const [activeTab, setActiveTab] = useState<'pipeline' | 'settings' | 'about' | 'mail'>('pipeline');
+  
+  type Tab = 'command-center' | 'pipeline' | 'operations' | 'agents' | 'mail' | 'settings';
+  const [activeTab, setActiveTab] = useState<Tab>('command-center');
+
+  // Command Center KPI metrics state
+  const [kpiMetrics, setKpiMetrics] = useState<KpiMetric[]>(() => {
+    const saved = localStorage.getItem('joelos_kpi_metrics');
+    if (saved) return JSON.parse(saved);
+    return [
+      { label: 'MTD Revenue', value: '$0', change: '0%', changeDir: 'flat', sub: '$0 YTD · 0 jobs', sparkData: [0,0,0,0,0] },
+      { label: 'MTD Profit', value: '$0', change: '0%', changeDir: 'flat', sub: 'Net after expenses', sparkData: [0,0,0,0,0] },
+      { label: 'YTD Revenue', value: '$0.00', change: '38%', changeDir: 'up', sub: 'YTD combined', sparkData: [2,4,3,6,8] },
+      { label: 'YTD Gross Profit', value: '$0', change: '8%', changeDir: 'up', sub: '0% margin · YTD range', sparkData: [1,2,3,2,4] },
+      { label: 'Business Savings', value: '$0', change: '5%', changeDir: 'down', sub: 'Reserve fund', sparkData: [5,4,3,4,2] },
+      { label: 'Monthly Expenses', value: '$—', change: '25%', changeDir: 'up', sub: 'Rent · Van · Insurance · Bills', sparkData: [3,4,5,4,6] },
+      { label: 'Active Campaigns', value: '0', change: '0%', changeDir: 'flat', sub: 'Facebook Ads', sparkData: [0,0,0,0,0] },
+      { label: 'Total Ad Leads', value: '0', change: '18%', changeDir: 'up', sub: 'All time cumulative', sparkData: [1,3,4,5,7] },
+    ];
+  });
+
+  // Attention Required alerts state
+  const [alerts, setAlerts] = useState<Alert[]>(() => {
+    const saved = localStorage.getItem('joelos_alerts');
+    if (saved) return JSON.parse(saved);
+    return [
+      { id: '1', severity: 'critical', title: 'Server health check failed', detail: 'Backend not responding at /api/health', timestamp: 'NOW', agentSource: 'CORTANA' },
+      { id: '2', severity: 'warning', title: 'Pipeline has no runs today', detail: 'No agent tasks executed in last 24h', timestamp: '12H AGO', agentSource: 'BOSS' },
+      { id: '3', severity: 'info', title: 'Memory ledger growing', detail: `0 entries stored in brain`, timestamp: 'ONGOING', agentSource: 'MEMORY' },
+    ];
+  });
+
+  // Operations Board (Kanban) tasks state
+  const [opsTasks, setOpsTasks] = useState<OpsTask[]>(() => {
+    const saved = localStorage.getItem('joelos_ops_tasks');
+    if (saved) return JSON.parse(saved);
+    return [
+      { id: '1', title: 'Complete daily pipeline run', detail: 'Run full Researcher→Planner→Coder→Reviewer pipeline', agentSource: 'CORTANA', status: 'queued', createdAt: new Date().toLocaleTimeString(), priority: 'high' },
+      { id: '2', title: 'Review memory ledger', detail: 'Verify items in brain store. Archive old entries', agentSource: 'BOSS', status: 'queued', createdAt: new Date().toLocaleTimeString(), priority: 'medium' },
+    ];
+  });
+
+  // Live Activity Feed panel state
+  const [activityFeed, setActivityFeed] = useState<ActivityEntry[]>(() => {
+    const saved = localStorage.getItem('joelos_activity_feed');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // KPI Metrics persistence
+  useEffect(() => {
+    localStorage.setItem('joelos_kpi_metrics', JSON.stringify(kpiMetrics));
+  }, [kpiMetrics]);
+
+  // Alerts persistence
+  useEffect(() => {
+    localStorage.setItem('joelos_alerts', JSON.stringify(alerts));
+  }, [alerts]);
+
+  // Ops Tasks persistence
+  useEffect(() => {
+    localStorage.setItem('joelos_ops_tasks', JSON.stringify(opsTasks));
+  }, [opsTasks]);
+
+  // Activity Feed persistence
+  useEffect(() => {
+    localStorage.setItem('joelos_activity_feed', JSON.stringify(activityFeed));
+  }, [activityFeed]);
+
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isMemorySearching, setIsMemorySearching] = useState<boolean>(false);
   const [memorySearchQuery, setMemorySearchQuery] = useState<string>('');
@@ -514,6 +589,19 @@ export default function App() {
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [matchedMemories, setMatchedMemories] = useState<MemoryItem[]>([]);
   const [selectedMemory, setSelectedMemory] = useState<MemoryItem | null>(null);
+
+  // Dynamic alert detail update when memories count changes
+  useEffect(() => {
+    setAlerts(prev => prev.map(alert => {
+      if (alert.id === '3') {
+        return {
+          ...alert,
+          detail: `${memories.length} entries stored in brain`
+        };
+      }
+      return alert;
+    }));
+  }, [memories.length]);
 
   // Agent profiles and runtime execution states
   const [agents, setAgents] = useState<Agent[]>(() => {
@@ -1079,6 +1167,19 @@ export default function App() {
     );
   };
 
+  const addActivity = (agentName: string, agentColor: string, action: string) => {
+    setActivityFeed(prev => [
+      {
+        id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
+        agentName: agentName.toUpperCase(),
+        agentColor: agentColor || '#10b981',
+        action: action,
+        timestamp: new Date().toLocaleTimeString(),
+      },
+      ...prev
+    ].slice(0, 50));
+  };
+
   // Stop current active pipeline
   const stopPipelineOrchestration = () => {
     pipelineAbortedRef.current = true;
@@ -1270,6 +1371,7 @@ export default function App() {
           return next;
         });
         setPipelineNodes(nodes => nodes.map(n => n.id === 'cortana' ? { ...n, status: 'completed' } : n));
+        addActivity('Cortana', '#7c3aed', 'Completed orchestration plan design and task allocation.');
       } catch (err: any) {
         console.error('Cortana Agent fail:', err);
         setMessages(prev => prev.map(m => m.id === cortanaMsgId ? {
@@ -1356,6 +1458,7 @@ export default function App() {
           return next;
         });
         setPipelineNodes(nodes => nodes.map(n => n.id === 'memory' ? { ...n, status: 'completed' } : n));
+        addActivity('Memory', '#10b981', 'Completed semantic memory retrieval and brain ledger linkage.');
       } catch (err: any) {
         console.error('Memory Agent fail:', err);
         setNodeContexts(prev => ({
@@ -1496,6 +1599,7 @@ export default function App() {
           return next;
         });
         setPipelineNodes(nodes => nodes.map(n => n.id === 'researcher' ? { ...n, status: 'completed' } : n));
+        addActivity('Researcher', '#3b82f6', 'Completed domain specifications analysis and web research compilation.');
 
       } catch (err: any) {
         console.error('Researcher fail:', err);
@@ -1639,6 +1743,7 @@ export default function App() {
           return next;
         });
         setPipelineNodes(nodes => nodes.map(n => n.id === 'planner' ? { ...n, status: 'completed' } : n));
+        addActivity('Planner', '#f59e0b', 'Completed visual wireframes planning and component dependency structure.');
 
       } catch (err: any) {
         console.error('Planner fail:', err);
@@ -1783,6 +1888,7 @@ export default function App() {
           return next;
         });
         setPipelineNodes(nodes => nodes.map(n => n.id === 'coder' ? { ...n, status: 'completed' } : n));
+        addActivity('Coder', '#10b981', 'Completed module code writing and technical specifications assembly.');
 
       } catch (err: any) {
         console.error('Coder fail:', err);
@@ -1926,6 +2032,7 @@ export default function App() {
           return next;
         });
         setPipelineNodes(nodes => nodes.map(n => n.id === 'reviewer' ? { ...n, status: 'completed' } : n));
+        addActivity('Reviewer', '#ef4444', 'Completed syntax check, code logic validation, and quality audit.');
 
       } catch (err: any) {
         console.error('Reviewer fail:', err);
@@ -2010,6 +2117,7 @@ export default function App() {
       }]);
 
       setPipelineNodes(nodes => nodes.map(n => n.id === 'output' ? { ...n, status: 'completed' } : n));
+      addActivity('System', '#10b981', 'Entire collaborative pipeline executed successfully.');
       
       // Save timing data point to history state and local storage
       const newTimingData = {
@@ -2120,6 +2228,577 @@ export default function App() {
         >
           {text}
         </Markdown>
+      </div>
+    );
+  };
+
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDetail, setNewTaskDetail] = useState('');
+  const [newTaskPriority, setNewTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [newTaskAgent, setNewTaskAgent] = useState<AgentId>('cortana');
+
+  const renderSparkline = (data: number[]) => {
+    if (!data || data.length === 0) return null;
+    const width = 60;
+    const height = 15;
+    const max = Math.max(...data, 1);
+    const points = data.map((val, i) => {
+      const x = (i / (data.length - 1)) * width;
+      const y = height - (val / max) * height;
+      return `${x},${y}`;
+    }).join(' ');
+    
+    return (
+      <svg width={width} height={height} className="overflow-visible">
+        <polyline
+          fill="none"
+          stroke="#00ff66"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          points={points}
+          className="drop-shadow-[0_0_2px_rgba(0,255,102,0.5)]"
+        />
+      </svg>
+    );
+  };
+
+  const handleAgentCardClick = (agent: Agent) => {
+    setActiveTab('pipeline');
+    setUserPrompt(`[${agent.name}] `);
+  };
+
+  const handleCreateTask = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTaskTitle.trim()) return;
+    const task: OpsTask = {
+      id: Date.now().toString(),
+      title: newTaskTitle.trim(),
+      detail: newTaskDetail.trim(),
+      priority: newTaskPriority,
+      agentSource: newTaskAgent.toUpperCase() as any,
+      status: 'queued',
+      createdAt: new Date().toLocaleTimeString(),
+    };
+    setOpsTasks(prev => [...prev, task]);
+    setNewTaskTitle('');
+    setNewTaskDetail('');
+  };
+
+  const moveTaskStatus = (id: string, dir: 'prev' | 'next') => {
+    const statuses: TaskStatus[] = ['queued', 'in-progress', 'review', 'done'];
+    setOpsTasks(prev => prev.map(task => {
+      if (task.id === id) {
+        const currIdx = statuses.indexOf(task.status);
+        let nextIdx = currIdx;
+        if (dir === 'prev' && currIdx > 0) nextIdx = currIdx - 1;
+        if (dir === 'next' && currIdx < statuses.length - 1) nextIdx = currIdx + 1;
+        return { ...task, status: statuses[nextIdx] };
+      }
+      return task;
+    }));
+  };
+
+  const deleteTask = (id: string) => {
+    setOpsTasks(prev => prev.filter(t => t.id !== id));
+  };
+
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    e.dataTransfer.setData('text/plain', id);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent, targetStatus: TaskStatus) => {
+    e.preventDefault();
+    const id = e.dataTransfer.getData('text/plain');
+    setOpsTasks(prev => prev.map(task => {
+      if (task.id === id) {
+        return { ...task, status: targetStatus };
+      }
+      return task;
+    }));
+  };
+
+  const renderCommandCenter = () => {
+    const activeAgentsCount = agents.filter(a => a.enabled !== false).length;
+    const totalRuns = agents.reduce((sum, a) => sum + (a.taskCount || 0), 0);
+    
+    return (
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h2 className="font-display font-black text-2xl text-white tracking-tight">JoelOS COMMAND CENTER</h2>
+            <p className="text-emerald-500/60 text-xs font-mono uppercase tracking-wider mt-1">REAL-TIME MISSION CONTROL & PERFORMANCE OBSERVABILITY</p>
+          </div>
+          <div className="flex items-center gap-2 bg-[#020503] border border-emerald-950 px-3 py-1.5 rounded-xl font-mono text-[10px] text-emerald-400">
+            <Clock size={12} className="animate-pulse" />
+            <span>LAST SYNC: {new Date().toLocaleTimeString()}</span>
+          </div>
+        </div>
+
+        {/* KPI Metrics Bar */}
+        <div className="space-y-2">
+          <h3 className="font-mono text-[10px] uppercase tracking-widest text-emerald-500 font-extrabold flex items-center gap-2">
+            <LayoutDashboard size={11} />
+            <span>OPERATIONAL TELEMETRY</span>
+          </h3>
+          <div className="flex gap-4 overflow-x-auto pb-2 pt-1 no-scrollbar scroll-smooth snap-x">
+            {[
+              { label: 'ACTIVE AGENTS', value: `${activeAgentsCount} / ${agents.length}`, sub: 'Ready for delegation', spark: [5, 6, 6, 7, activeAgentsCount], icon: <Bot size={13} /> },
+              { label: 'TOTAL RUNS', value: `${totalRuns} jobs`, sub: 'Cumulative compilations', spark: [totalRuns - 4, totalRuns - 2, totalRuns - 1, totalRuns, totalRuns], icon: <Terminal size={13} /> },
+              { label: 'TOKEN VELOCITY', value: `${sessionTokens.toLocaleString()} Tx`, sub: 'Context budget spent', spark: [1, 2, 4, 8, sessionTokens ? Math.min(10, sessionTokens/1000) : 0], icon: <Sparkles size={13} /> },
+              { label: 'BRAIN MEMORIES', value: `${memories.length} slots`, sub: 'Semantic vectors stored', spark: [1, 2, 2, 3, memories.length], icon: <Database size={13} /> },
+              { label: 'SYSTEM HEALTH', value: ollamaConnectionStatus === 'connected' ? '100% ONLINE' : '92.1% DEGRADED', sub: ollamaConnectionStatus === 'connected' ? 'Ollama fully linked' : 'Ollama Offline', spark: ollamaConnectionStatus === 'connected' ? [10, 10, 10, 10, 10] : [10, 10, 9, 9, 9], icon: <ShieldCheck size={13} /> }
+            ].map((kpi, idx) => (
+              <div 
+                key={idx} 
+                className="min-w-[200px] sm:min-w-[240px] flex-1 snap-start p-4 rounded-xl border border-emerald-950/80 bg-[#030604] hover:border-emerald-500/40 transition-all duration-300 relative group overflow-hidden"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-500/70 font-bold">{kpi.label}</span>
+                  <span className="text-emerald-500/40 group-hover:text-emerald-400 transition-colors">{kpi.icon}</span>
+                </div>
+                <div className="flex items-baseline justify-between gap-2 mt-1">
+                  <span className="text-lg sm:text-xl font-display font-black text-white">{kpi.value}</span>
+                  <div className="h-4 flex items-end">
+                    {renderSparkline(kpi.spark)}
+                  </div>
+                </div>
+                <div className="text-[10px] text-slate-400/80 font-sans mt-1.5">{kpi.sub}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Attention Required alerts */}
+        <div className="space-y-2">
+          <h3 className="font-mono text-[10px] uppercase tracking-widest text-emerald-500 font-extrabold flex items-center gap-2">
+            <AlertCircle size={11} className="text-emerald-400" />
+            <span>ATTENTION REQUIRED</span>
+          </h3>
+          <div className="flex gap-4 overflow-x-auto pb-2 pt-1 no-scrollbar scroll-smooth snap-x">
+            {alerts.map((alert) => {
+              let alertClass = "border-emerald-500/20 bg-emerald-950/10 text-emerald-300 hover:border-emerald-500/40";
+              let badgeClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/25";
+              if (alert.severity === 'critical') {
+                alertClass = "border-rose-500/20 bg-rose-950/10 text-rose-300 hover:border-rose-500/40";
+                badgeClass = "bg-rose-500/10 text-rose-400 border border-rose-500/25 animate-pulse";
+              } else if (alert.severity === 'warning') {
+                alertClass = "border-amber-500/20 bg-amber-950/10 text-amber-300 hover:border-amber-500/40";
+                badgeClass = "bg-amber-500/10 text-amber-400 border border-amber-500/25";
+              }
+              
+              const handleAlertClick = () => {
+                if (alert.id === '1') {
+                  setActiveTab('settings');
+                } else if (alert.id === '2') {
+                  setActiveTab('pipeline');
+                } else if (alert.id === '3') {
+                  setIsMemoryDrawerOpen(true);
+                }
+              };
+
+              return (
+                <div 
+                  key={alert.id} 
+                  onClick={handleAlertClick}
+                  className={`min-w-[260px] sm:min-w-[300px] flex-1 snap-start p-4 rounded-xl border ${alertClass} cursor-pointer transition-all duration-300 flex flex-col justify-between`}
+                >
+                  <div className="flex justify-between items-start gap-2 mb-2">
+                    <span className={`text-[8px] font-mono font-bold tracking-widest uppercase px-2 py-0.5 rounded ${badgeClass}`}>
+                      {alert.severity}
+                    </span>
+                    <span className="text-[9px] font-mono text-slate-500">{alert.timestamp}</span>
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-black text-white font-sans line-clamp-1">{alert.title}</h4>
+                    <p className="text-[10px] text-slate-400 font-sans line-clamp-2 leading-relaxed">{alert.detail}</p>
+                  </div>
+                  <div className="mt-3 pt-2 border-t border-emerald-900/10 flex justify-between items-center text-[9px] font-mono text-emerald-400">
+                    <span>SOURCE: {alert.agentSource}</span>
+                    <span className="flex items-center gap-1 opacity-60 group-hover:opacity-100">RESOLVE <ArrowRight size={10} /></span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Dashboard split content area */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-3">
+            <div className="flex justify-between items-center">
+              <h3 className="font-mono text-[10px] uppercase tracking-widest text-emerald-500 font-extrabold flex items-center gap-2">
+                <Bot size={11} />
+                <span>JOELOS ACTIVE COMMAND AGENTS</span>
+              </h3>
+              <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">Double click card to delegate prompt</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {agents.map((agent) => {
+                const isActive = agent.status === 'thinking';
+                return (
+                  <div
+                    key={agent.id}
+                    onDoubleClick={() => handleAgentCardClick(agent)}
+                    onClick={() => handleAgentCardClick(agent)}
+                    className={`p-4 rounded-xl border transition-all duration-300 bg-[#030604] cursor-pointer group flex flex-col justify-between relative overflow-hidden h-[155px] ${
+                      agent.enabled === false
+                        ? 'border-emerald-950/35 opacity-40 hover:opacity-60'
+                        : isActive
+                          ? 'border-emerald-400 shadow-[0_0_15px_rgba(0,255,102,0.15)] ring-1 ring-emerald-500/20'
+                          : 'border-emerald-950/80 hover:border-emerald-500/40'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base select-none">{agent.icon}</span>
+                          <span className="font-mono font-bold text-xs text-white group-hover:text-[#00ff66] transition-colors">{agent.name}</span>
+                        </div>
+                        <span className={`w-2 h-2 rounded-full ${
+                          agent.enabled === false ? 'bg-slate-700' :
+                          isActive ? 'bg-[#00ff66] animate-pulse shadow-[0_0_8px_rgba(0,255,102,0.8)]' : 'bg-emerald-800'
+                        }`} />
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-sans leading-relaxed line-clamp-3 mb-2">{agent.description}</p>
+                    </div>
+
+                    <div className="pt-2 border-t border-emerald-950/50 flex items-center justify-between font-mono text-[9px] text-emerald-500">
+                      <span>{agent.model}</span>
+                      <span className="bg-[#00ff66]/5 px-2 py-0.5 rounded border border-emerald-900/30 text-emerald-300 font-bold">{agent.taskCount || 0} runs</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="font-mono text-[10px] uppercase tracking-widest text-emerald-500 font-extrabold flex items-center gap-2">
+              <History size={11} />
+              <span>LIVE ACTIVITY LOG</span>
+            </h3>
+            <div className={`border border-emerald-950/60 rounded-xl p-4 ${theme === 'oled' ? 'bg-[#000000]' : 'bg-[#050c08]'} flex flex-col h-[500px]`}>
+              <div className="flex-1 overflow-y-auto pr-1 space-y-3.5 custom-scrollbar">
+                {activityFeed.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center text-emerald-800 font-mono text-xs p-6">
+                    <History size={24} className="opacity-30 mb-2" />
+                    <span>System idling.<br />No orchestration activities recorded.</span>
+                  </div>
+                ) : (
+                  activityFeed.slice(0, 20).map((act) => (
+                    <div key={act.id} className="flex gap-2.5 items-start text-[11px] leading-relaxed border-b border-emerald-950/35 pb-2.5">
+                      <span className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: act.agentColor || '#10b981', boxShadow: `0 0 6px ${act.agentColor || '#10b981'}` }} />
+                      <div className="flex-1 space-y-0.5">
+                        <div className="flex justify-between items-baseline gap-2 font-mono">
+                          <span className="font-bold text-slate-200 text-[10px]" style={{ color: act.agentColor || '#10b981' }}>[{act.agentName}]</span>
+                          <span className="text-[8px] text-slate-600 shrink-0">{act.timestamp}</span>
+                        </div>
+                        <p className="text-slate-300 text-[10px] font-sans leading-normal">{act.action}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderOperations = () => {
+    const columns: { status: TaskStatus; label: string; border: string; bg: string; text: string }[] = [
+      { status: 'queued', label: 'BACKLOG QUEUE', border: 'border-slate-800/40', bg: 'bg-[#030604]', text: 'text-slate-400' },
+      { status: 'in-progress', label: 'IN PROGRESS', border: 'border-blue-950/40', bg: 'bg-[#030604]', text: 'text-blue-400' },
+      { status: 'review', label: 'REVIEW AUDIT', border: 'border-amber-950/40', bg: 'bg-[#030604]', text: 'text-amber-400' },
+      { status: 'done', label: 'DONE COMPLETED', border: 'border-emerald-950/40', bg: 'bg-[#030604]', text: 'text-[#00ff66]' }
+    ];
+
+    return (
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div>
+          <h2 className="font-display font-black text-2xl text-white tracking-tight">JoelOS OPERATIONS BOARD</h2>
+          <p className="text-emerald-500/60 text-xs font-mono uppercase tracking-wider mt-1">KANBAN COMPILATION LOG & AD-HOC TASK DISPATCHER</p>
+        </div>
+
+        <form onSubmit={handleCreateTask} className="p-4 rounded-xl border border-emerald-950/80 bg-[#030604] grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <div className="space-y-1 md:col-span-1">
+            <label className="text-[9px] font-mono text-emerald-500 font-bold block uppercase tracking-wider">TASK TITLE</label>
+            <input
+              type="text"
+              required
+              value={newTaskTitle}
+              onChange={(e) => setNewTaskTitle(e.target.value)}
+              placeholder="e.g. Test researcher output"
+              className="w-full text-xs rounded-lg bg-black border border-emerald-900/60 px-3 py-2 text-slate-200 placeholder-emerald-800/50 focus:outline-none focus:border-emerald-500 font-sans"
+            />
+          </div>
+          <div className="space-y-1 md:col-span-1">
+            <label className="text-[9px] font-mono text-emerald-500 font-bold block uppercase tracking-wider">DESCRIPTION</label>
+            <input
+              type="text"
+              value={newTaskDetail}
+              onChange={(e) => setNewTaskDetail(e.target.value)}
+              placeholder="e.g. Ensure we fetch the latest models"
+              className="w-full text-xs rounded-lg bg-black border border-emerald-900/60 px-3 py-2 text-slate-200 placeholder-emerald-800/50 focus:outline-none focus:border-emerald-500 font-sans"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2 md:col-span-1">
+            <div className="space-y-1">
+              <label className="text-[9px] font-mono text-emerald-500 font-bold block uppercase tracking-wider">PRIORITY</label>
+              <Select
+                value={newTaskPriority}
+                onValueChange={(val: any) => setNewTaskPriority(val)}
+              >
+                <SelectTrigger className="w-full text-xs rounded-lg bg-black border border-emerald-900/60 px-2.5 py-2 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono h-[34px]">
+                  <SelectValue placeholder="Select Priority" />
+                </SelectTrigger>
+                <SelectContent className="bg-black border border-emerald-900/60 text-slate-200 font-mono text-xs">
+                  <SelectItem value="low" className="cursor-pointer hover:bg-emerald-950/50">LOW</SelectItem>
+                  <SelectItem value="medium" className="cursor-pointer hover:bg-emerald-950/50">MEDIUM</SelectItem>
+                  <SelectItem value="high" className="cursor-pointer hover:bg-emerald-950/50">HIGH</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[9px] font-mono text-emerald-500 font-bold block uppercase tracking-wider">AGENT</label>
+              <Select
+                value={newTaskAgent}
+                onValueChange={(val: any) => setNewTaskAgent(val)}
+              >
+                <SelectTrigger className="w-full text-xs rounded-lg bg-black border border-[#10b981]/30 px-2.5 py-2 text-slate-200 focus:outline-none focus:border-[#10b981] font-mono h-[34px]">
+                  <SelectValue placeholder="Select Agent" />
+                </SelectTrigger>
+                <SelectContent className="bg-black border border-[#10b981]/30 text-slate-200 font-mono text-xs">
+                  {agents.map(a => (
+                    <SelectItem key={a.id} value={a.id} className="cursor-pointer hover:bg-emerald-950/50">
+                      {a.name.toUpperCase()}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <button
+            type="submit"
+            className="w-full md:col-span-1 text-xs rounded-lg bg-[#10b981]/20 hover:bg-[#10b981]/35 text-[#00ff66] border border-emerald-500/40 py-2 font-mono font-bold tracking-wider cursor-pointer min-h-[36px] flex items-center justify-center gap-1.5 transition-colors"
+          >
+            <Plus size={14} />
+            <span>DISPATCH TASK</span>
+          </button>
+        </form>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 min-h-[500px]">
+          {columns.map((col) => {
+            const colTasks = opsTasks.filter(t => t.status === col.status);
+            return (
+              <div
+                key={col.status}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, col.status)}
+                className={`rounded-xl border border-emerald-950/50 p-4 ${theme === 'oled' ? 'bg-[#000000]' : 'bg-[#050c08]'} flex flex-col min-h-[300px]`}
+              >
+                <div className="flex items-center justify-between pb-3 border-b border-emerald-900/35 mb-4 shrink-0 font-mono">
+                  <span className={`text-[10px] font-black tracking-widest ${col.text}`}>{col.label}</span>
+                  <span className="text-[9px] bg-[#00ff66]/5 px-2 py-0.5 rounded border border-emerald-950 font-bold text-slate-400">{colTasks.length}</span>
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-3.5 pr-1 max-h-[500px]">
+                  {colTasks.length === 0 ? (
+                    <div className="text-center py-10 text-slate-600 font-mono text-[10px]">
+                      COLUMN EMPTY
+                    </div>
+                  ) : (
+                    colTasks.map((task) => {
+                      let priorityBorder = "border-l-2 border-l-slate-600";
+                      let priorityText = "text-slate-400";
+                      if (task.priority === 'high') {
+                        priorityBorder = "border-l-2 border-l-rose-500";
+                        priorityText = "text-rose-400";
+                      } else if (task.priority === 'medium') {
+                        priorityBorder = "border-l-2 border-l-amber-500";
+                        priorityText = "text-amber-400";
+                      }
+                      
+                      const agentColor = agents.find(a => a.id === task.agentSource.toLowerCase())?.color || '#10b981';
+
+                      return (
+                        <div
+                          key={task.id}
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, task.id)}
+                          className={`bg-[#030604] border border-emerald-950 hover:border-emerald-500/40 p-3.5 rounded-xl transition-all duration-300 relative group cursor-grab active:cursor-grabbing ${priorityBorder}`}
+                        >
+                          <div className="flex justify-between items-start gap-2 mb-1.5">
+                            <span className="text-slate-200 font-black font-sans text-xs leading-snug line-clamp-2">{task.title}</span>
+                            <button
+                              onClick={() => deleteTask(task.id)}
+                              className="text-emerald-700 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-all cursor-pointer p-0.5"
+                              title="Delete Task"
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          </div>
+                          
+                          {task.detail && (
+                            <p className="text-[10px] text-slate-400 font-sans leading-relaxed line-clamp-3 mb-3">{task.detail}</p>
+                          )}
+
+                          <div className="flex items-center justify-between text-[8px] font-mono pt-2 border-t border-emerald-950/40">
+                            <span className="font-extrabold uppercase tracking-wider" style={{ color: agentColor }}>
+                              {task.agentSource}
+                            </span>
+                            <span className={`font-black uppercase ${priorityText}`}>{task.priority}</span>
+                          </div>
+
+                          <div className="flex justify-end gap-1 mt-2 pt-1.5 border-t border-emerald-950/20">
+                            <button
+                              type="button"
+                              onClick={() => moveTaskStatus(task.id, 'prev')}
+                              disabled={col.status === 'queued'}
+                              className="p-1 rounded bg-[#07130b] border border-emerald-950 text-emerald-600 disabled:opacity-20 hover:text-[#00ff66] transition-all cursor-pointer text-[10px] font-bold"
+                              title="Move Left"
+                            >
+                              ←
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveTaskStatus(task.id, 'next')}
+                              disabled={col.status === 'done'}
+                              className="p-1 rounded bg-[#07130b] border border-emerald-950 text-emerald-600 disabled:opacity-20 hover:text-[#00ff66] transition-all cursor-pointer text-[10px] font-bold"
+                              title="Move Right"
+                            >
+                              →
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAgentsGrid = () => {
+    return (
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-emerald-950/40 pb-4">
+          <div>
+            <h2 className="font-display font-black text-2xl text-white tracking-tight">JoelOS AGENT DECK</h2>
+            <p className="text-emerald-500/60 text-xs font-mono uppercase tracking-wider mt-1">ENABLE, CONFIGURE & BENCHMARK COLLABORATIVE CORE INSTANCES</p>
+          </div>
+          <button
+            onClick={() => setShowModelHub(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-[#00ff66]/10 hover:bg-[#00ff66]/20 text-[#00ff66] border border-[#00ff66]/30 hover:border-[#00ff66]/50 rounded-lg text-xs font-mono font-bold tracking-wider transition-all cursor-pointer h-10 shadow-lg shadow-[#00ff66]/5 uppercase shrink-0"
+            title="Open Model Hub to pull or delete local models"
+          >
+            <Server size={14} />
+            <span>Models Hub</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {agents.map((agent) => {
+            const isActive = agent.status === 'thinking';
+            return (
+              <div
+                key={agent.id}
+                className={`p-5 rounded-2xl border transition-all duration-300 bg-[#030604] flex flex-col justify-between relative overflow-hidden ${
+                  agent.enabled === false
+                    ? 'border-emerald-950/35 opacity-40'
+                    : isActive
+                      ? 'border-emerald-400 shadow-[0_0_15px_rgba(0,255,102,0.15)] ring-1 ring-emerald-500/20'
+                      : 'border-emerald-950/80 hover:border-emerald-500/40'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-emerald-950/60">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl select-none">{agent.icon}</span>
+                      <div className="space-y-0.5">
+                        <span className="font-mono font-black text-sm text-white">{agent.name}</span>
+                        <span className="text-[8px] font-mono text-emerald-500 uppercase tracking-widest block font-extrabold">CORE_INSTANCE_{agent.id.toUpperCase()}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[9px] text-slate-500">{agent.enabled !== false ? 'ENABLED' : 'DISABLED'}</span>
+                      <button
+                        onClick={() => {
+                          const updated = agents.map(a => {
+                            if (a.id === agent.id) {
+                              return { ...a, enabled: a.enabled === false ? true : false };
+                            }
+                            return a;
+                          });
+                          setAgents(updated);
+                          const enabledMap = updated.reduce((acc, a) => ({ ...acc, [a.id]: a.enabled !== false }), {});
+                          localStorage.setItem('joelos_enabled_agents_v2', JSON.stringify(enabledMap));
+                        }}
+                        className={`w-9 h-5 rounded-full p-0.5 transition-all cursor-pointer relative ${
+                          agent.enabled !== false ? 'bg-[#10b981]' : 'bg-slate-800'
+                        }`}
+                        title="Toggle Agent status"
+                      >
+                        <div className={`w-4 h-4 bg-white rounded-full shadow-md transition-all transform ${
+                          agent.enabled !== false ? 'translate-x-4' : 'translate-x-0'
+                        }`} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-300 font-sans leading-relaxed mb-4">{agent.description}</p>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-emerald-950/60">
+                  <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between text-xs font-mono">
+                    <div className="space-y-1 w-full sm:w-auto">
+                      <span className="text-[8px] font-mono text-slate-500 block uppercase tracking-wider font-extrabold">MODEL INSTANCE</span>
+                      {agent.id === 'memory' ? (
+                        <span className="text-emerald-400 font-bold block py-1.5">Vector Store</span>
+                      ) : (
+                        <Select
+                          value={agentModels[agent.id] || 'llama3.2'}
+                          onValueChange={(val) => {
+                            const updatedModels = { ...agentModels, [agent.id]: val };
+                            setAgentModels(updatedModels);
+                            localStorage.setItem('joelos_agent_models', JSON.stringify(updatedModels));
+                          }}
+                        >
+                          <SelectTrigger className="text-xs rounded-lg bg-black border border-emerald-900/60 px-2 py-1 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono w-full sm:w-40 h-[30px]">
+                            <SelectValue placeholder="Select Model" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-black border border-emerald-900/60 text-slate-200 font-mono text-xs">
+                            {installedOllamaModels.map(m => (
+                              <SelectItem key={m} value={m} className="cursor-pointer hover:bg-emerald-950/50">
+                                {m}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <span className="text-[8px] font-mono text-slate-500 block uppercase tracking-wider font-extrabold">RUN TELEMETRY</span>
+                      <span className="text-emerald-300 font-bold font-mono block mt-1">{agent.taskCount || 0} Runs</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   };
@@ -2450,7 +3129,11 @@ export default function App() {
         {/* Global Connection Controls */}
         <div className="flex items-center gap-2 sm:gap-4">
           {/* Ollama Connection Indicator */}
-          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#020503] border border-emerald-950 text-xs font-mono">
+          <button
+            onClick={() => setShowModelHub(true)}
+            className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#020503] hover:bg-emerald-950/30 border border-emerald-950 hover:border-emerald-500/30 text-xs font-mono transition-all cursor-pointer"
+            title="Open Model Hub"
+          >
             <span className={`w-2.5 h-2.5 rounded-full ${ollamaConnectionStatus === 'connected' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)] animate-pulse' : 'bg-amber-500 animate-pulse'}`}></span>
             <span className="text-emerald-400">
               {ollamaConnectionStatus === 'connected' 
@@ -2459,7 +3142,7 @@ export default function App() {
                   ? 'Ollama: Offline' 
                   : 'Ollama: Connecting...'}
             </span>
-          </div>
+          </button>
 
           {/* Engine Selector */}
           <div className="flex items-center rounded-xl bg-[#020503] p-1 border border-emerald-900/40 shrink-0">
@@ -2530,6 +3213,60 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* Top Navigation Bar */}
+      <nav className={`border-b border-emerald-900/30 ${theme === 'oled' ? 'bg-[#000000]' : 'bg-[#030805]'} px-6 py-2 flex items-center justify-between shrink-0 font-mono text-xs z-20 gap-4 overflow-x-auto no-scrollbar`}>
+        <div className="flex items-center gap-1.5 md:gap-3 overflow-x-auto no-scrollbar flex-1">
+          {[
+            { id: 'command-center', label: 'COMMAND CENTER', icon: <LayoutDashboard size={14} /> },
+            { id: 'pipeline', label: 'PIPELINE', icon: <Terminal size={14} /> },
+            { id: 'operations', label: 'OPERATIONS', icon: <Trello size={14} /> },
+            { id: 'agents', label: 'AGENTS', icon: <Bot size={14} /> },
+            { id: 'mail', label: 'MAIL', icon: <Mail size={14} /> },
+            { id: 'settings', label: 'SETTINGS', icon: <Settings size={14} /> }
+          ].map((item) => {
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                id={`nav-tab-${item.id}`}
+                onClick={() => {
+                  setActiveTab(item.id as Tab);
+                  setMobileMenuOpen(false);
+                }}
+                className={`px-3 py-1.5 rounded-lg flex items-center gap-2 transition-all cursor-pointer select-none border whitespace-nowrap font-black tracking-wider text-[10px] sm:text-[11px] ${
+                  isActive
+                    ? 'bg-[#10b981]/20 text-[#00ff66] border-emerald-500/50 shadow-[0_0_10px_rgba(0,255,102,0.15)] font-black'
+                    : 'text-emerald-600 hover:text-emerald-400 border-transparent hover:bg-emerald-950/20'
+                }`}
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Global Action Triggers floating right */}
+        <div className="flex items-center gap-2 shrink-0 border-l border-emerald-900/30 pl-3">
+          <button
+            onClick={() => setIsPipelineDrawerOpen(true)}
+            className="px-2.5 py-1.5 rounded-lg border border-emerald-900/40 text-emerald-500 hover:text-[#00ff66] hover:border-emerald-500/40 hover:bg-emerald-950/20 flex items-center gap-1.5 cursor-pointer select-none font-bold text-[10px] transition-all"
+            title="Execution Pipeline Graph"
+          >
+            <Workflow size={12} />
+            <span className="hidden md:inline">FLOW GRAPH</span>
+          </button>
+          <button
+            onClick={() => setIsMemoryDrawerOpen(true)}
+            className="px-2.5 py-1.5 rounded-lg border border-emerald-900/40 text-emerald-500 hover:text-[#00ff66] hover:border-emerald-500/40 hover:bg-emerald-950/20 flex items-center gap-1.5 cursor-pointer select-none font-bold text-[10px] transition-all"
+            title="Memory history database ledger"
+          >
+            <Database size={12} />
+            <span className="hidden md:inline">MEMORY LEDGER</span>
+          </button>
+        </div>
+      </nav>
 
       {/* Main Container Layout */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
@@ -2660,7 +3397,9 @@ export default function App() {
             <SidebarTrigger className="bg-[#0b2114] text-emerald-400 border border-emerald-500/30 rounded-lg p-2" />
           </div>
           
-          {activeTab === 'pipeline' ? (
+          {activeTab === 'command-center' ? (
+            renderCommandCenter()
+          ) : activeTab === 'pipeline' ? (
             <>
               {chatTab === 'global' ? (
                 <>
@@ -2804,17 +3543,21 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto">
                   <span className="text-[10px] font-mono text-emerald-500/60 uppercase font-bold tracking-wider">TARGET AGENT:</span>
-                  <select
+                  <Select
                     value={privateAgentId}
-                    onChange={(e) => setPrivateAgentId(e.target.value as AgentId)}
-                    className="bg-[#020503] border border-emerald-800 text-emerald-400 focus:border-emerald-400 text-xs font-mono font-bold rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer"
+                    onValueChange={(val) => setPrivateAgentId(val as AgentId)}
                   >
-                    {agents.map(a => (
-                      <option key={a.id} value={a.id}>
-                        {a.icon} {a.name} ({a.model})
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="bg-[#020503] border border-emerald-800 text-emerald-400 focus:border-emerald-400 text-xs font-mono font-bold rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer h-8">
+                      <SelectValue placeholder="Select Agent" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#020503] border border-emerald-800 text-emerald-400 font-mono text-xs max-h-60 overflow-y-auto">
+                      {agents.map(a => (
+                        <SelectItem key={a.id} value={a.id} className="cursor-pointer hover:bg-emerald-950/50">
+                          {a.icon} {a.name} ({a.model})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
@@ -2858,14 +3601,83 @@ export default function App() {
                         );
                       }
 
+                      let borderColor = 'border-emerald-500';
+                      let headerText = 'SYSTEM UPDATE';
+                      let headerColor = 'text-emerald-400';
+                      let headerBg = 'bg-[#08120d]';
+                      let isAgent = false;
+                      let modelName = '';
+
+                      if (msg.sender === 'planner') {
+                        borderColor = 'border-amber-500';
+                        headerText = '🧠 PLANNER';
+                        headerColor = 'text-amber-400';
+                        headerBg = 'bg-[#181205]';
+                        isAgent = true;
+                        modelName = agentProfile?.model || agentModels.planner;
+                      } else if (msg.sender === 'coder') {
+                        borderColor = 'border-[#00ff66]';
+                        headerText = '💻 CODER';
+                        headerColor = 'text-[#00ff66]';
+                        headerBg = 'bg-[#05180f]';
+                        isAgent = true;
+                        modelName = agentProfile?.model || agentModels.coder;
+                      } else if (msg.sender === 'reviewer') {
+                        borderColor = 'border-rose-500';
+                        headerText = '🔍 REVIEWER';
+                        headerColor = 'text-rose-400';
+                        headerBg = 'bg-[#1c080b]';
+                        isAgent = true;
+                        modelName = agentProfile?.model || agentModels.reviewer;
+                      } else if (msg.sender === 'researcher') {
+                        borderColor = 'border-sky-500';
+                        headerText = '🌐 RESEARCHER';
+                        headerColor = 'text-sky-400';
+                        headerBg = 'bg-[#05121c]';
+                        isAgent = true;
+                        modelName = agentProfile?.model || agentModels.researcher;
+                      } else if (msg.sender === 'memory') {
+                        borderColor = 'border-purple-500';
+                        headerText = '📚 MEMORY';
+                        headerColor = 'text-purple-400';
+                        headerBg = 'bg-[#14061a]';
+                        isAgent = true;
+                        modelName = 'Vector Engine';
+                      } else if (msg.sender === 'cortana') {
+                        borderColor = 'border-[#00ff66]';
+                        headerText = '🛡️ CORTANA (ORCHESTRATOR)';
+                        headerColor = 'text-[#00ff66]';
+                        headerBg = 'bg-[#05180f]';
+                        isAgent = true;
+                        modelName = agentModels.cortana;
+                      }
+
                       return (
-                        <div key={msg.id} className="flex justify-start w-full">
-                          <div className="bg-[#050c08] border border-emerald-500/20 px-5 py-4 rounded-2xl max-w-[75%] shadow-md">
-                            <div className="flex items-center justify-between gap-4 mb-2 text-[10px] text-emerald-400 font-mono font-bold">
-                              <span>{agentProfile?.icon || '🤖'} {agentProfile?.name.toUpperCase() || 'AGENT'} RESPONSE</span>
-                              <span className="text-emerald-400/50">{msg.timestamp}</span>
+                        <div
+                          key={msg.id}
+                          className={`bg-[#030604] border-l-4 ${borderColor} rounded-xl shadow-lg overflow-hidden transition-all border-y border-r border-emerald-950 w-full`}
+                        >
+                          <div className={`px-4 py-2.5 border-b border-emerald-950/60 flex items-center justify-between ${headerBg}`}>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-mono font-black tracking-wider ${headerColor}`}>{headerText}</span>
+                              {isAgent && modelName && (
+                                <span className="text-[10px] text-emerald-400/60 font-mono bg-[#020503] px-2 py-0.5 rounded border border-emerald-900/30">({modelName})</span>
+                              )}
                             </div>
+                            <div className="flex items-center gap-2 text-[10px] text-emerald-500/60 font-mono">
+                              <Clock size={10} />
+                              <span>{msg.timestamp}</span>
+                            </div>
+                          </div>
+                          <div className="p-5">
                             {renderMessageContent(msg)}
+                            
+                            {msg.isStreaming && (
+                              <div className="flex items-center gap-2 mt-4 text-xs font-mono text-[#00ff66] bg-[#05180f] p-3 rounded-lg border border-emerald-500/20">
+                                <RefreshCw size={12} className="animate-spin text-[#00ff66]" />
+                                <span>Generating streamed response from agent...</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
@@ -3057,6 +3869,14 @@ export default function App() {
                         placeholder="e.g. http://localhost:11434"
                         className="w-full rounded-lg bg-[#0a0f0c] border border-emerald-950 p-2.5 text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
                       />
+                      <button
+                        onClick={() => setShowModelHub(true)}
+                        className="w-full mt-3 bg-[#00ff66]/10 hover:bg-[#00ff66]/20 text-[#00ff66] border border-[#00ff66]/30 py-2 rounded font-mono text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer h-9 shadow-md shadow-[#00ff66]/5"
+                        title="Open Model Hub to Pull and Delete local LLMs"
+                      >
+                        <Server size={13} />
+                        OPEN MODELS HUB
+                      </button>
                     </div>
 
                     <div className="space-y-4 pt-2">
@@ -3075,24 +3895,38 @@ export default function App() {
                           return (
                             <div key={agent.id} className="space-y-1">
                               <label className="block text-[11px] text-emerald-500/70 font-bold uppercase">{agent.icon} {agent.name}</label>
-                              <select
+                              <Select
                                 value={presets.includes(agentModels[agent.id]) ? agentModels[agent.id] : 'custom'}
-                                onChange={(e) => {
-                                  if (e.target.value !== 'custom') {
+                                onValueChange={(val) => {
+                                  if (val !== 'custom') {
                                     setAgentModels(prev => {
-                                      const next = { ...prev, [agent.id]: e.target.value };
+                                      const next = { ...prev, [agent.id]: val };
+                                      localStorage.setItem('joelos_agent_models', JSON.stringify(next));
+                                      return next;
+                                    });
+                                  } else {
+                                    setAgentModels(prev => {
+                                      const next = { ...prev, [agent.id]: '' };
                                       localStorage.setItem('joelos_agent_models', JSON.stringify(next));
                                       return next;
                                     });
                                   }
                                 }}
-                                className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
                               >
-                                {presets.map(m => (
-                                  <option key={m} value={m}>{m}</option>
-                                ))}
-                                <option value="custom">-- Custom model name --</option>
-                              </select>
+                                <SelectTrigger className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500 h-9">
+                                  <SelectValue placeholder="Select Model" />
+                                </SelectTrigger>
+                                <SelectContent className="bg-[#0a0f0c] border border-emerald-950 text-emerald-300 font-mono text-xs max-h-60 overflow-y-auto">
+                                  {presets.map(m => (
+                                    <SelectItem key={m} value={m} className="cursor-pointer hover:bg-emerald-950/50">
+                                      {m}
+                                    </SelectItem>
+                                  ))}
+                                  <SelectItem value="custom" className="cursor-pointer hover:bg-emerald-950/50">
+                                    -- Custom model name --
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
                               {(!presets.includes(agentModels[agent.id])) && (
                                 <input
                                   type="text"
@@ -3131,16 +3965,20 @@ export default function App() {
                     
                     <div>
                       <label className="block text-xs font-mono text-emerald-400/80 mb-1.5">Active Engine</label>
-                      <select
+                      <Select
                         value={engine}
-                        onChange={(e) => setEngine(e.target.value as any)}
-                        className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
+                        onValueChange={(val) => setEngine(val as any)}
                       >
-                        <option value="gemini">Google Gemini AI</option>
-                        <option value="openai">OpenAI</option>
-                        <option value="openrouter">OpenRouter (Nvidia, Anthropic, etc)</option>
-                        <option value="ollama">Ollama (Local Models)</option>
-                      </select>
+                        <SelectTrigger className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500 h-9">
+                          <SelectValue placeholder="Select Engine" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-[#0a0f0c] border border-emerald-950 text-emerald-300 font-mono text-xs max-h-60 overflow-y-auto">
+                          <SelectItem value="gemini" className="cursor-pointer hover:bg-emerald-950/50">Google Gemini AI</SelectItem>
+                          <SelectItem value="openai" className="cursor-pointer hover:bg-emerald-950/50">OpenAI</SelectItem>
+                          <SelectItem value="openrouter" className="cursor-pointer hover:bg-emerald-950/50">OpenRouter (Nvidia, Anthropic, etc)</SelectItem>
+                          <SelectItem value="ollama" className="cursor-pointer hover:bg-emerald-950/50">Ollama (Local Models)</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     {engine !== 'ollama' && (
@@ -3166,12 +4004,11 @@ export default function App() {
                         <span className="font-semibold block text-slate-200">Google Search Grounding</span>
                         <span className="text-[10px] text-emerald-500/60">Only supported on Gemini engine.</span>
                       </div>
-                      <input
-                        type="checkbox"
+                      <Switch
                         checked={searchGrounding}
-                        onChange={(e) => setSearchGrounding(e.target.checked)}
+                        onCheckedChange={setSearchGrounding}
                         disabled={engine !== 'gemini'}
-                        className="w-4 h-4 text-emerald-600 border-emerald-950 rounded focus:ring-emerald-500 cursor-pointer disabled:opacity-50"
+                        className={engine !== 'gemini' ? 'opacity-50 cursor-not-allowed' : ''}
                       />
                     </div>
 
@@ -3180,11 +4017,9 @@ export default function App() {
                         <span className="font-semibold block text-slate-200">Audio Notifications</span>
                         <span className="text-[10px] text-emerald-500/60">Play chime sounds on agent events.</span>
                       </div>
-                      <input
-                        type="checkbox"
+                      <Switch
                         checked={soundEnabled}
-                        onChange={(e) => setSoundEnabled(e.target.checked)}
-                        className="w-4 h-4 text-emerald-600 border-emerald-950 rounded focus:ring-emerald-500 cursor-pointer"
+                        onCheckedChange={setSoundEnabled}
                       />
                     </div>
                   </div>
@@ -3283,6 +4118,10 @@ export default function App() {
                 </div>
               </div>
             </div>
+          ) : activeTab === 'operations' ? (
+            renderOperations()
+          ) : activeTab === 'agents' ? (
+            renderAgentsGrid()
           ) : activeTab === 'mail' ? (
             /* MAIL INTEGRATION TAB */
             <div className="flex-1 overflow-hidden">
@@ -3342,55 +4181,7 @@ export default function App() {
               </div>
             </div>
           )}
-
         </main>
-
-        {/* RIGHT COLUMN: Navigation Sidebar */}
-        <aside className={`w-16 shrink-0 border-l border-emerald-900/30 ${theme === 'oled' ? 'bg-[#000000]' : 'bg-[#020503]'} hidden sm:flex flex-col items-center py-4 gap-4 z-10 shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.5)]`}>
-          <button
-            onClick={() => setActiveTab('pipeline')}
-            className={`w-10 h-10 rounded-lg flex flex-col justify-center items-center transition-all ${activeTab === 'pipeline' ? 'bg-[#10b981]/25 text-emerald-200 border border-[#10b981]/40 shadow-sm' : 'text-emerald-600 hover:text-emerald-400 hover:bg-[#10b981]/5'}`}
-            title="Chat"
-          >
-            <MessageSquare size={18} />
-          </button>
-          <button
-            onClick={() => setIsPipelineDrawerOpen(true)}
-            className={`w-10 h-10 rounded-lg flex flex-col justify-center items-center transition-all text-emerald-600 hover:text-emerald-400 hover:bg-[#10b981]/5`}
-            title="Execution Pipeline Graph"
-          >
-            <Workflow size={18} />
-          </button>
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`w-10 h-10 rounded-lg flex flex-col justify-center items-center transition-all ${activeTab === 'settings' ? 'bg-[#10b981]/25 text-emerald-200 border border-[#10b981]/40 shadow-sm' : 'text-emerald-600 hover:text-emerald-400 hover:bg-[#10b981]/5'}`}
-            title="Config"
-          >
-            <Settings size={18} />
-          </button>
-          <button
-            onClick={() => setActiveTab('mail')}
-            className={`w-10 h-10 rounded-lg flex flex-col justify-center items-center transition-all ${activeTab === 'mail' ? 'bg-[#10b981]/25 text-emerald-200 border border-[#10b981]/40 shadow-sm' : 'text-emerald-600 hover:text-emerald-400 hover:bg-[#10b981]/5'}`}
-            title="Mail"
-          >
-            <Mail size={18} />
-          </button>
-          <div className="w-8 h-[1px] bg-emerald-900/40 my-1"></div>
-          <button
-            onClick={() => setIsMemoryDrawerOpen(true)}
-            className="w-10 h-10 rounded-lg flex flex-col justify-center items-center text-emerald-600 hover:text-emerald-400 hover:bg-[#10b981]/5 transition-all"
-            title="Memory"
-          >
-            <Database size={18} />
-          </button>
-          <button
-            onClick={() => setShowModelHub(true)}
-            className="w-10 h-10 rounded-lg flex flex-col justify-center items-center text-emerald-600 hover:text-emerald-400 hover:bg-[#10b981]/5 transition-all"
-            title="Model Hub"
-          >
-            <Server size={18} />
-          </button>
-        </aside>
 
       </div>
 

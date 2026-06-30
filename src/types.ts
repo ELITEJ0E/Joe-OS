@@ -52,3 +52,42 @@ export interface OllamaModelInfo {
     quantization_level: string;
   };
 }
+
+export type TaskStatus = 'queued' | 'in-progress' | 'review' | 'done';
+
+export interface OpsTask {
+  id: string;
+  title: string;
+  detail: string;
+  agentSource: string;
+  status: TaskStatus;
+  createdAt: string;
+  priority: 'high' | 'medium' | 'low';
+}
+
+export interface ActivityEntry {
+  id: string;
+  agentName: string;
+  agentColor: string;
+  action: string;
+  timestamp: string;
+}
+
+export interface Alert {
+  id: string;
+  severity: 'critical' | 'warning' | 'info';
+  title: string;
+  detail: string;
+  timestamp: string;
+  agentSource: string;
+}
+
+export interface KpiMetric {
+  label: string;
+  value: string;
+  change: string;
+  changeDir: 'up' | 'down' | 'flat';
+  sub?: string;
+  sparkData?: number[];
+}
+
