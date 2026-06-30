@@ -2655,37 +2655,29 @@ export default function App() {
           <div className="grid grid-cols-2 gap-2 md:col-span-1">
             <div className="space-y-1">
               <label className="text-[9px] font-mono text-emerald-500 font-bold block uppercase tracking-wider">PRIORITY</label>
-              <Select
+              <select
                 value={newTaskPriority}
-                onValueChange={(val: any) => setNewTaskPriority(val)}
+                onChange={(e) => setNewTaskPriority(e.target.value as any)}
+                className="w-full text-xs rounded-lg bg-black border border-emerald-900/60 px-2.5 py-2 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono h-[34px] cursor-pointer"
               >
-                <SelectTrigger className="w-full text-xs rounded-lg bg-black border border-emerald-900/60 px-2.5 py-2 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono h-[34px]">
-                  <SelectValue placeholder="Select Priority" />
-                </SelectTrigger>
-                <SelectContent className="bg-black border border-emerald-900/60 text-slate-200 font-mono text-xs">
-                  <SelectItem value="low" className="cursor-pointer hover:bg-emerald-950/50">LOW</SelectItem>
-                  <SelectItem value="medium" className="cursor-pointer hover:bg-emerald-950/50">MEDIUM</SelectItem>
-                  <SelectItem value="high" className="cursor-pointer hover:bg-emerald-950/50">HIGH</SelectItem>
-                </SelectContent>
-              </Select>
+                <option value="low" className="bg-black text-slate-200">LOW</option>
+                <option value="medium" className="bg-black text-slate-200">MEDIUM</option>
+                <option value="high" className="bg-black text-slate-200">HIGH</option>
+              </select>
             </div>
             <div className="space-y-1">
               <label className="text-[9px] font-mono text-emerald-500 font-bold block uppercase tracking-wider">AGENT</label>
-              <Select
+              <select
                 value={newTaskAgent}
-                onValueChange={(val: any) => setNewTaskAgent(val)}
+                onChange={(e) => setNewTaskAgent(e.target.value as any)}
+                className="w-full text-xs rounded-lg bg-black border border-[#10b981]/30 px-2.5 py-2 text-slate-200 focus:outline-none focus:border-[#10b981] font-mono h-[34px] cursor-pointer"
               >
-                <SelectTrigger className="w-full text-xs rounded-lg bg-black border border-[#10b981]/30 px-2.5 py-2 text-slate-200 focus:outline-none focus:border-[#10b981] font-mono h-[34px]">
-                  <SelectValue placeholder="Select Agent" />
-                </SelectTrigger>
-                <SelectContent className="bg-black border border-[#10b981]/30 text-slate-200 font-mono text-xs">
-                  {agents.map(a => (
-                    <SelectItem key={a.id} value={a.id} className="cursor-pointer hover:bg-emerald-950/50">
-                      {a.name.toUpperCase()}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                {agents.map(a => (
+                  <option key={a.id} value={a.id} className="bg-black text-slate-200">
+                    {a.name.toUpperCase()}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
           <button
@@ -2871,28 +2863,22 @@ export default function App() {
                       {agent.id === 'memory' ? (
                         <span className="text-emerald-400 font-bold block py-1.5">Vector Store</span>
                       ) : (
-                        <Select
+                        <select
                           value={agentModels[agent.id] || (activeModelsList[0]?.id || 'llama3.2')}
-                          onValueChange={(val) => {
+                          onChange={(e) => {
+                            const val = e.target.value;
                             const updatedModels = { ...agentModels, [agent.id]: val };
                             setAgentModels(updatedModels);
                             localStorage.setItem('joelos_agent_models', JSON.stringify(updatedModels));
                           }}
+                          className="text-xs rounded-lg bg-black border border-emerald-900/60 px-2 py-1 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono w-full sm:w-48 h-[30px] cursor-pointer"
                         >
-                          <SelectTrigger className="text-xs rounded-lg bg-black border border-emerald-900/60 px-2 py-1 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono w-full sm:w-48 h-[30px] flex items-center justify-between">
-                            <SelectValue placeholder="Select Model" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-black border border-emerald-900/60 text-slate-200 font-mono text-xs max-h-64 overflow-y-auto">
-                            {activeModelsList.map(m => (
-                              <SelectItem key={m.id} value={m.id} className="cursor-pointer hover:bg-emerald-950/50">
-                                <span className="flex items-center justify-between w-full gap-2">
-                                  <span>{m.name || m.id}</span>
-                                  {m.isFree && <span className="text-[9px] bg-emerald-500/10 text-[#00ff66] px-1 py-0.5 rounded border border-[#00ff66]/20 scale-90">FREE</span>}
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          {activeModelsList.map(m => (
+                            <option key={m.id} value={m.id} className="bg-black text-slate-200">
+                              {m.name || m.id} {m.isFree ? ' (FREE)' : ''}
+                            </option>
+                          ))}
+                        </select>
                       )}
                     </div>
 
@@ -3650,21 +3636,17 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto">
                   <span className="text-[10px] font-mono text-emerald-500/60 uppercase font-bold tracking-wider">TARGET AGENT:</span>
-                  <Select
+                  <select
                     value={privateAgentId}
-                    onValueChange={(val) => setPrivateAgentId(val as AgentId)}
+                    onChange={(e) => setPrivateAgentId(e.target.value as AgentId)}
+                    className="bg-[#020503] border border-emerald-800 text-emerald-400 focus:border-emerald-400 text-xs font-mono font-bold rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer h-8"
                   >
-                    <SelectTrigger className="bg-[#020503] border border-emerald-800 text-emerald-400 focus:border-emerald-400 text-xs font-mono font-bold rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer h-8">
-                      <SelectValue placeholder="Select Agent" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#020503] border border-emerald-800 text-emerald-400 font-mono text-xs max-h-60 overflow-y-auto">
-                      {agents.map(a => (
-                        <SelectItem key={a.id} value={a.id} className="cursor-pointer hover:bg-emerald-950/50">
-                          {a.icon} {a.name} ({a.model})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    {agents.map(a => (
+                      <option key={a.id} value={a.id} className="bg-[#020503] text-emerald-400">
+                        {a.icon} {a.name} ({a.model})
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -4005,9 +3987,10 @@ export default function App() {
                           return (
                             <div key={agent.id} className="space-y-1">
                               <label className="block text-[11px] text-emerald-500/70 font-bold uppercase">{agent.icon} {agent.name}</label>
-                              <Select
+                              <select
                                 value={isCustom ? 'custom' : (agentModels[agent.id] || '')}
-                                onValueChange={(val) => {
+                                onChange={(e) => {
+                                  const val = e.target.value;
                                   if (val !== 'custom') {
                                     setAgentModels(prev => {
                                       const next = { ...prev, [agent.id]: val };
@@ -4022,24 +4005,17 @@ export default function App() {
                                     });
                                   }
                                 }}
+                                className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500 h-9 cursor-pointer"
                               >
-                                <SelectTrigger className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500 h-9 flex items-center justify-between">
-                                  <SelectValue placeholder="Select Model" />
-                                </SelectTrigger>
-                                <SelectContent className="bg-[#0a0f0c] border border-emerald-950 text-emerald-300 font-mono text-xs max-h-60 overflow-y-auto">
-                                  {activeModelsList.map(m => (
-                                    <SelectItem key={m.id} value={m.id} className="cursor-pointer hover:bg-emerald-950/50">
-                                      <span className="flex items-center justify-between w-full gap-2">
-                                        <span>{m.name || m.id}</span>
-                                        {m.isFree && <span className="text-[9px] bg-emerald-500/10 text-[#00ff66] px-1 py-0.5 rounded border border-[#00ff66]/20">FREE</span>}
-                                      </span>
-                                    </SelectItem>
-                                  ))}
-                                  <SelectItem value="custom" className="cursor-pointer hover:bg-emerald-950/50">
-                                    -- Custom model name --
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
+                                {activeModelsList.map(m => (
+                                  <option key={m.id} value={m.id} className="bg-[#0a0f0c] text-emerald-300">
+                                    {m.name || m.id} {m.isFree ? ' (FREE)' : ''}
+                                  </option>
+                                ))}
+                                <option value="custom" className="bg-[#0a0f0c] text-emerald-300">
+                                  -- Custom model name --
+                                </option>
+                              </select>
                               {(isCustom) && (
                                 <input
                                   type="text"
@@ -4078,20 +4054,16 @@ export default function App() {
                     
                     <div>
                       <label className="block text-xs font-mono text-emerald-400/80 mb-1.5">Active Engine</label>
-                      <Select
+                      <select
                         value={engine}
-                        onValueChange={(val) => setEngine(val as any)}
+                        onChange={(e) => setEngine(e.target.value as any)}
+                        className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500 h-9 cursor-pointer"
                       >
-                        <SelectTrigger className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500 h-9">
-                          <SelectValue placeholder="Select Engine" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-[#0a0f0c] border border-emerald-950 text-emerald-300 font-mono text-xs max-h-60 overflow-y-auto">
-                          <SelectItem value="gemini" className="cursor-pointer hover:bg-emerald-950/50">Google Gemini AI</SelectItem>
-                          <SelectItem value="openai" className="cursor-pointer hover:bg-emerald-950/50">OpenAI</SelectItem>
-                          <SelectItem value="openrouter" className="cursor-pointer hover:bg-emerald-950/50">OpenRouter (Nvidia, Anthropic, etc)</SelectItem>
-                          <SelectItem value="ollama" className="cursor-pointer hover:bg-emerald-950/50">Ollama (Local Models)</SelectItem>
-                        </SelectContent>
-                      </Select>
+                        <option value="gemini" className="bg-[#0a0f0c] text-emerald-300">Google Gemini AI</option>
+                        <option value="openai" className="bg-[#0a0f0c] text-emerald-300">OpenAI</option>
+                        <option value="openrouter" className="bg-[#0a0f0c] text-emerald-300">OpenRouter (Nvidia, Anthropic, etc)</option>
+                        <option value="ollama" className="bg-[#0a0f0c] text-emerald-300">Ollama (Local Models)</option>
+                      </select>
                     </div>
 
                     {engine !== 'ollama' && (
