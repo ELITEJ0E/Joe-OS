@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import * as Diff from 'diff';
 import {
@@ -233,6 +233,11 @@ export default function App() {
   const [ollamaModelDetails, setOllamaModelDetails] = useState<OllamaModelInfo[]>([]);
   const [showModelHub, setShowModelHub] = useState<boolean>(false);
   const [ollamaRefreshTrigger, setOllamaRefreshTrigger] = useState<number>(0);
+
+  // Dynamic models state for selected provider/engine
+  const [availableProviderModels, setAvailableProviderModels] = useState<any[]>([]);
+  const [loadingProviderModels, setLoadingProviderModels] = useState<boolean>(false);
+  const [providerModelsError, setProviderModelsError] = useState<string | null>(null);
 
   // Interactive controls
   const [userPrompt, setUserPrompt] = useState<string>('');
@@ -897,6 +902,105 @@ export default function App() {
       return { ...agent, model: newModel };
     }));
   }, [engine, agentModels]);
+
+  // Fetch available models dynamically based on active engine and credentials
+  const fetchProviderModels = async () => {
+    setLoadingProviderModels(true);
+    setProviderModelsError(null);
+    try {
+      const res = await fetch('/api/provider-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          engine,
+          apiKey: cloudApiKey,
+          ollamaUrl,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server responded with ${res.status}`);
+      }
+      const data = await res.json();
+      setAvailableProviderModels(data.models || []);
+    } catch (err: any) {
+      console.error('Failed to fetch provider models:', err);
+      setProviderModelsError(err.message || 'Failed to retrieve models list');
+      
+      // Load fallback presets
+      if (engine === 'openrouter') {
+        setAvailableProviderModels([
+          { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', isFree: false },
+          { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', isFree: false },
+          { id: 'qwen/qwen-2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder 32B', isFree: false },
+          { id: 'meta-llama/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', isFree: false },
+          { id: 'google/gemma-2-9b-it:free', name: 'Gemma 2 9B (Free)', isFree: true },
+          { id: 'meta-llama/llama-3-8b-instruct:free', name: 'Llama 3 8B (Free)', isFree: true },
+          { id: 'qwen/qwen-2-7b-instruct:free', name: 'Qwen 2 7B (Free)', isFree: true },
+          { id: 'openchat/openchat-7b:free', name: 'OpenChat 7B (Free)', isFree: true },
+        ]);
+      } else if (engine === 'openai') {
+        setAvailableProviderModels([
+          { id: 'gpt-4o', name: 'gpt-4o', isFree: false },
+          { id: 'gpt-4o-mini', name: 'gpt-4o-mini', isFree: false },
+          { id: 'o1-mini', name: 'o1-mini', isFree: false },
+          { id: 'o1-preview', name: 'o1-preview', isFree: false },
+        ]);
+      } else if (engine === 'gemini') {
+        setAvailableProviderModels([
+          { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', isFree: true },
+          { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', isFree: true },
+          { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', isFree: true },
+          { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', isFree: true },
+          { id: 'gemini-1.5-flash-8b', name: 'Gemini 1.5 Flash 8B', isFree: true },
+        ]);
+      } else {
+        setAvailableProviderModels([]);
+      }
+    } finally {
+      setLoadingProviderModels(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProviderModels();
+  }, [engine, cloudApiKey, ollamaRefreshTrigger]);
+
+  const activeModelsList = useMemo(() => {
+    if (availableProviderModels && availableProviderModels.length > 0) {
+      return availableProviderModels;
+    }
+    // Fallbacks if availableProviderModels is not loaded yet
+    if (engine === 'gemini') {
+      return [
+        { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', isFree: true },
+        { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', isFree: true },
+        { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', isFree: true },
+        { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', isFree: true },
+        { id: 'gemini-1.5-flash-8b', name: 'Gemini 1.5 Flash 8B', isFree: true },
+      ];
+    } else if (engine === 'openai') {
+      return [
+        { id: 'gpt-4o', name: 'gpt-4o', isFree: false },
+        { id: 'gpt-4o-mini', name: 'gpt-4o-mini', isFree: false },
+        { id: 'o1-mini', name: 'o1-mini', isFree: false },
+        { id: 'o1-preview', name: 'o1-preview', isFree: false },
+      ];
+    } else if (engine === 'openrouter') {
+      return [
+        { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', isFree: false },
+        { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', isFree: false },
+        { id: 'qwen/qwen-2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder 32B', isFree: false },
+        { id: 'meta-llama/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', isFree: false },
+        { id: 'google/gemma-2-9b-it:free', name: 'Gemma 2 9B (Free)', isFree: true },
+        { id: 'meta-llama/llama-3-8b-instruct:free', name: 'Llama 3 8B (Free)', isFree: true },
+        { id: 'qwen/qwen-2-7b-instruct:free', name: 'Qwen 2 7B (Free)', isFree: true },
+        { id: 'openchat/openchat-7b:free', name: 'OpenChat 7B (Free)', isFree: true },
+      ];
+    } else {
+      return installedOllamaModels.map(m => ({ id: m, name: m, isFree: true }));
+    }
+  }, [engine, availableProviderModels, installedOllamaModels]);
 
   // Load memories from backend on startup
   useEffect(() => {
@@ -2768,20 +2872,23 @@ export default function App() {
                         <span className="text-emerald-400 font-bold block py-1.5">Vector Store</span>
                       ) : (
                         <Select
-                          value={agentModels[agent.id] || 'llama3.2'}
+                          value={agentModels[agent.id] || (activeModelsList[0]?.id || 'llama3.2')}
                           onValueChange={(val) => {
                             const updatedModels = { ...agentModels, [agent.id]: val };
                             setAgentModels(updatedModels);
                             localStorage.setItem('joelos_agent_models', JSON.stringify(updatedModels));
                           }}
                         >
-                          <SelectTrigger className="text-xs rounded-lg bg-black border border-emerald-900/60 px-2 py-1 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono w-full sm:w-40 h-[30px]">
+                          <SelectTrigger className="text-xs rounded-lg bg-black border border-emerald-900/60 px-2 py-1 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono w-full sm:w-48 h-[30px] flex items-center justify-between">
                             <SelectValue placeholder="Select Model" />
                           </SelectTrigger>
-                          <SelectContent className="bg-black border border-emerald-900/60 text-slate-200 font-mono text-xs">
-                            {installedOllamaModels.map(m => (
-                              <SelectItem key={m} value={m} className="cursor-pointer hover:bg-emerald-950/50">
-                                {m}
+                          <SelectContent className="bg-black border border-emerald-900/60 text-slate-200 font-mono text-xs max-h-64 overflow-y-auto">
+                            {activeModelsList.map(m => (
+                              <SelectItem key={m.id} value={m.id} className="cursor-pointer hover:bg-emerald-950/50">
+                                <span className="flex items-center justify-between w-full gap-2">
+                                  <span>{m.name || m.id}</span>
+                                  {m.isFree && <span className="text-[9px] bg-emerald-500/10 text-[#00ff66] px-1 py-0.5 rounded border border-[#00ff66]/20 scale-90">FREE</span>}
+                                </span>
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -3880,23 +3987,26 @@ export default function App() {
                     </div>
 
                     <div className="space-y-4 pt-2">
-                      <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider">Agent Model Assignment</label>
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider">Agent Model Assignment</label>
+                        {loadingProviderModels && (
+                          <span className="text-[10px] text-[#00ff66] font-mono animate-pulse">Syncing provider catalog...</span>
+                        )}
+                        {providerModelsError && (
+                          <span className="text-[10px] text-red-400 font-mono" title={providerModelsError}>Offline Catalog (Fallback loaded)</span>
+                        )}
+                      </div>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 max-h-96 overflow-y-auto pr-2 no-scrollbar">
                         {agents.map((agent) => {
-                          const presets = engine === 'gemini' 
-                            ? ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-2.0-flash']
-                            : engine === 'openai' 
-                              ? ['gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o1-preview']
-                              : engine === 'openrouter'
-                                ? ['anthropic/claude-3.5-sonnet', 'google/gemini-pro-1.5', 'meta-llama/llama-3.1-8b-instruct', 'openai/gpt-4o']
-                                : installedOllamaModels;
+                          const presets = activeModelsList.map(m => m.id);
+                          const isCustom = !presets.includes(agentModels[agent.id]);
                           
                           return (
                             <div key={agent.id} className="space-y-1">
                               <label className="block text-[11px] text-emerald-500/70 font-bold uppercase">{agent.icon} {agent.name}</label>
                               <Select
-                                value={presets.includes(agentModels[agent.id]) ? agentModels[agent.id] : 'custom'}
+                                value={isCustom ? 'custom' : (agentModels[agent.id] || '')}
                                 onValueChange={(val) => {
                                   if (val !== 'custom') {
                                     setAgentModels(prev => {
@@ -3913,13 +4023,16 @@ export default function App() {
                                   }
                                 }}
                               >
-                                <SelectTrigger className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500 h-9">
+                                <SelectTrigger className="w-full rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500 h-9 flex items-center justify-between">
                                   <SelectValue placeholder="Select Model" />
                                 </SelectTrigger>
                                 <SelectContent className="bg-[#0a0f0c] border border-emerald-950 text-emerald-300 font-mono text-xs max-h-60 overflow-y-auto">
-                                  {presets.map(m => (
-                                    <SelectItem key={m} value={m} className="cursor-pointer hover:bg-emerald-950/50">
-                                      {m}
+                                  {activeModelsList.map(m => (
+                                    <SelectItem key={m.id} value={m.id} className="cursor-pointer hover:bg-emerald-950/50">
+                                      <span className="flex items-center justify-between w-full gap-2">
+                                        <span>{m.name || m.id}</span>
+                                        {m.isFree && <span className="text-[9px] bg-emerald-500/10 text-[#00ff66] px-1 py-0.5 rounded border border-[#00ff66]/20">FREE</span>}
+                                      </span>
                                     </SelectItem>
                                   ))}
                                   <SelectItem value="custom" className="cursor-pointer hover:bg-emerald-950/50">
@@ -3927,7 +4040,7 @@ export default function App() {
                                   </SelectItem>
                                 </SelectContent>
                               </Select>
-                              {(!presets.includes(agentModels[agent.id])) && (
+                              {(isCustom) && (
                                 <input
                                   type="text"
                                   value={agentModels[agent.id] || ''}
@@ -3939,7 +4052,7 @@ export default function App() {
                                     });
                                   }}
                                   placeholder="Type custom model name..."
-                                  className="w-full mt-1.5 rounded bg-[#0a0f0c] border border-emerald-950 p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
+                                  className="w-full mt-1.5 rounded bg-[#0a0f0c] border border-[#0a0f0c] p-2 font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-500"
                                 />
                               )}
                             </div>

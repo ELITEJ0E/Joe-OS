@@ -457,6 +457,86 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// Proxy route to fetch dynamic list of models from current active engine / provider
+app.post('/api/provider-models', async (req, res) => {
+  const { engine, apiKey, ollamaUrl = 'http://localhost:11434' } = req.body;
+
+  if (!engine) {
+    return res.status(400).json({ error: 'Engine parameter is required' });
+  }
+
+  try {
+    if (engine === 'openrouter') {
+      const response = await fetch('https://openrouter.ai/api/v1/models', {
+        headers: {
+          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`OpenRouter models API returned status ${response.status}`);
+      }
+      const data = await response.json();
+      const formattedModels = (data.data || []).map((m: any) => {
+        const isFree = !m.pricing || (parseFloat(m.pricing.prompt) === 0 && parseFloat(m.pricing.completion) === 0 || m.id.endsWith(':free'));
+        return {
+          id: m.id,
+          name: m.name,
+          description: m.description || '',
+          contextLength: m.context_length || 0,
+          pricing: m.pricing || null,
+          isFree: isFree,
+        };
+      });
+      return res.json({ models: formattedModels });
+    } else if (engine === 'openai') {
+      const response = await fetch('https://api.openai.com/v1/models', {
+        headers: {
+          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`OpenAI models API returned status ${response.status}`);
+      }
+      const data = await response.json();
+      const formattedModels = (data.data || [])
+        .filter((m: any) => m.id.startsWith('gpt') || m.id.startsWith('o1'))
+        .map((m: any) => ({
+          id: m.id,
+          name: m.id,
+          isFree: false,
+        }));
+      return res.json({ models: formattedModels });
+    } else if (engine === 'gemini') {
+      const geminiModels = [
+        { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Recommended default. High speed, balanced multimodal capabilities.', isFree: true },
+        { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Premium reasoning, high-fidelity coding, and complex analysis.', isFree: true },
+        { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', description: 'Fast, lightweight model for everyday tasks.', isFree: true },
+        { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: 'Complex multi-turn instruction following.', isFree: true },
+        { id: 'gemini-1.5-flash-8b', name: 'Gemini 1.5 Flash 8B', description: 'Extremely fast, high-volume lower cost model.', isFree: true },
+      ];
+      return res.json({ models: geminiModels });
+    } else if (engine === 'ollama') {
+      const response = await fetch(`${ollamaUrl}/api/tags`);
+      if (!response.ok) {
+        throw new Error(`Ollama returned status ${response.status}`);
+      }
+      const data = await response.json();
+      const formattedModels = (data.models || []).map((m: any) => ({
+        id: m.name,
+        name: m.name,
+        description: `Size: ${(m.size / (1024 * 1024 * 1024)).toFixed(2)} GB - Format: ${m.details?.format || 'GGUF'}`,
+        isFree: true,
+      }));
+      return res.json({ models: formattedModels });
+    } else {
+      return res.status(400).json({ error: `Unsupported engine: ${engine}` });
+    }
+  } catch (err: any) {
+    console.error('Error in provider-models:', err);
+    return res.status(500).json({ error: err.message || 'Failed to fetch provider models' });
+  }
+});
+
 // Setup Vite Dev server middleware or serve production static build
 async function setupViteOrStatic() {
   if (process.env.NODE_ENV !== 'production') {
