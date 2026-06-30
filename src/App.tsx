@@ -2904,7 +2904,7 @@ export default function App() {
   };
 
   return (
-    <SidebarProvider defaultOpen={false} style={{ "--sidebar-width": "24rem", "--sidebar-width-icon": "4rem" } as React.CSSProperties}>
+    <SidebarProvider defaultOpen={false} style={{ "--sidebar-width": "20rem", "--sidebar-width-icon": "5rem" } as React.CSSProperties}>
       <div className={`h-screen w-full overflow-hidden ${theme === 'light' ? 'bg-[#f3f6f4] text-slate-800' : (theme === 'oled' ? 'bg-[#000000] text-emerald-200/90' : 'bg-[#020403] text-emerald-200/90')} flex flex-col font-sans selection:bg-emerald-500/35 selection:text-white terminal-grid transition-colors duration-300`}>
       <style>{`
         :root {
@@ -3394,7 +3394,7 @@ export default function App() {
                   <div
                     key={agent.id}
                     title={agent.name}
-                    className={`relative rounded-xl border transition-all flex items-center gap-3.5 group-data-[collapsible=offcanvas]:p-3.5 group-data-[collapsible=icon]:p-2 group-data-[collapsible=icon]:justify-center ${
+                    className={`relative rounded-xl border transition-all flex items-center gap-3.5 group-data-[collapsible=offcanvas]:p-5 group-data-[collapsible=icon]:p-3 group-data-[collapsible=icon]:justify-center ${
                       agent.enabled === false
                         ? 'border-emerald-950/30 bg-[#050a08]/50 opacity-50'
                         : agent.status === 'thinking'
@@ -3421,7 +3421,7 @@ export default function App() {
                               });
                             }}
                             disabled={pipelineIsRunning}
-                            className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase transition-colors ${
+                            className={`text-[10px] px-2.5 py-1 rounded font-bold uppercase transition-colors ${
                               agent.enabled === false 
                                 ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 cursor-pointer' 
                                 : 'bg-emerald-900/60 text-[#00ff66] hover:bg-emerald-800/80 cursor-pointer'
