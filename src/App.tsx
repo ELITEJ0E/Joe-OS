@@ -233,6 +233,7 @@ export default function App() {
   const [ollamaModelDetails, setOllamaModelDetails] = useState<OllamaModelInfo[]>([]);
   const [showModelHub, setShowModelHub] = useState<boolean>(false);
   const [ollamaRefreshTrigger, setOllamaRefreshTrigger] = useState<number>(0);
+  const [isAutoScrollEnabled, setIsAutoScrollEnabled] = useState<boolean>(true);
 
   // Dynamic models state for selected provider/engine
   const [availableProviderModels, setAvailableProviderModels] = useState<any[]>([]);
@@ -631,7 +632,7 @@ export default function App() {
       {
         id: 'cortana',
         name: 'Cortana',
-        icon: '👑',
+        icon: '/images/cortana_icon_1782802478622.jpg',
         dotColor: 'bg-purple-500 shadow-purple-500/50 text-purple-400 border-purple-500/20',
         model: 'gemini-2.5-flash',
         description: 'Chief of Staff. Receives directives, plans agent pipelines, and synthesizes outputs.',
@@ -643,7 +644,7 @@ export default function App() {
       {
         id: 'jarvis',
         name: 'Jarvis',
-        icon: '💬',
+        icon: '/images/jarvis_icon_1782804403241.jpg',
         dotColor: 'bg-blue-500 shadow-blue-500/50 text-blue-400 border-blue-500/20',
         model: 'gemini-2.5-flash',
         description: 'Communications Agent. Handles email triage, scheduling, and client templates.',
@@ -655,7 +656,7 @@ export default function App() {
       {
         id: 'aura',
         name: 'Aura',
-        icon: '📢',
+        icon: '/images/aura_icon_1782804422854.jpg',
         dotColor: 'bg-pink-500 shadow-pink-500/50 text-pink-400 border-pink-500/20',
         model: 'gemini-2.5-flash',
         description: 'Content & Brand. Drafts campaigns, social copy, and tracks audience engagement.',
@@ -667,7 +668,7 @@ export default function App() {
       {
         id: 'boss',
         name: 'Boss',
-        icon: '📊',
+        icon: '/images/boss_icon_1782804579792.jpg',
         dotColor: 'bg-amber-500 shadow-amber-500/50 text-amber-400 border-amber-500/20',
         model: 'gemini-2.5-flash',
         description: 'Operations Manager. Compiles summaries, tracks task deadlines, and organizes daily briefs.',
@@ -679,7 +680,7 @@ export default function App() {
       {
         id: 'cash',
         name: 'Cash',
-        icon: '💵',
+        icon: '/images/cash_icon_1782804680455.jpg',
         dotColor: 'bg-emerald-500 shadow-emerald-500/50 text-emerald-400 border-emerald-500/20',
         model: 'gemini-2.5-flash',
         description: 'Finance Intelligence. Computes ROI on campaigns, manages spend, flags anomalies.',
@@ -691,7 +692,7 @@ export default function App() {
       {
         id: 'forge',
         name: 'Forge',
-        icon: '🛠️',
+        icon: '/images/forge_icon_1782804761591.jpg',
         dotColor: 'bg-slate-400 shadow-slate-400/50 text-slate-300 border-slate-500/20',
         model: 'gemini-2.5-flash',
         description: 'Build & Dev. Engineers codebase structures, refactors systems, and writes code.',
@@ -703,7 +704,7 @@ export default function App() {
       {
         id: 'titan',
         name: 'Titan',
-        icon: '🎯',
+        icon: '/images/titan_icon_1782804846502.jpg',
         dotColor: 'bg-violet-500 shadow-violet-500/50 text-violet-400 border-violet-500/20',
         model: 'gemini-2.5-flash',
         description: 'Strategic Analyst. Conducts market research, evaluates pricing, tracks trends.',
@@ -715,7 +716,7 @@ export default function App() {
       {
         id: 'memory',
         name: 'Memory',
-        icon: '📚',
+        icon: '/images/memory_icon_1782804882461.jpg',
         dotColor: 'bg-purple-500 shadow-purple-500/50 text-purple-400 border-purple-500/20',
         model: 'Vector Engine',
         description: 'Semantic vector memory store. Recalls relevant patterns from history.',
@@ -727,7 +728,7 @@ export default function App() {
       {
         id: 'researcher',
         name: 'Researcher',
-        icon: '🌐',
+        icon: '/images/researcher_icon_1782804913680.jpg',
         dotColor: 'bg-blue-500 shadow-blue-500/50 text-blue-400 border-blue-500/20',
         model: 'gemini-2.5-flash',
         description: 'Conducts deep technical analysis, pulls libraries, APIs, and guidelines.',
@@ -739,7 +740,7 @@ export default function App() {
       {
         id: 'planner',
         name: 'Planner',
-        icon: '📋',
+        icon: '/images/planner_icon_1782804930740.jpg',
         dotColor: 'bg-amber-500 shadow-amber-500/50 text-amber-400 border-amber-500/20',
         model: 'gemini-2.5-flash',
         description: 'Formulates step-by-step blueprints, layout design, and data schemas.',
@@ -751,7 +752,7 @@ export default function App() {
       {
         id: 'coder',
         name: 'Coder',
-        icon: '💻',
+        icon: '/images/coder_icon_1782804952483.jpg',
         dotColor: 'bg-emerald-500 shadow-emerald-500/50 text-emerald-400 border-emerald-500/20',
         model: 'gemini-2.5-pro',
         description: 'Generates optimized React, TypeScript, and Tailwind CSS codebases.',
@@ -763,7 +764,7 @@ export default function App() {
       {
         id: 'reviewer',
         name: 'Reviewer',
-        icon: '🔍',
+        icon: '/images/reviewer_icon_1782804970130.jpg',
         dotColor: 'bg-pink-500 shadow-pink-500/50 text-pink-400 border-pink-500/20',
         model: 'gemini-2.5-flash',
         description: 'Audits code quality, rendering, performance, and responsive layout.',
@@ -1063,8 +1064,10 @@ export default function App() {
 
   // Scroll to bottom helper
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (isAutoScrollEnabled) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isAutoScrollEnabled]);
 
   // Handle Search Memory Filter on local items
   const handleMemorySearch = async (query: string) => {
@@ -2560,7 +2563,9 @@ export default function App() {
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <span className="text-base select-none">{agent.icon}</span>
+                          <span className="text-base select-none">
+                            {agent.icon.startsWith('/') ? <img src={agent.icon} alt={agent.name} className="w-5 h-5 inline-block object-cover rounded-full" /> : agent.icon}
+                          </span>
                           <span className="font-mono font-bold text-xs text-white group-hover:text-[#00ff66] transition-colors">{agent.name}</span>
                         </div>
                         <span className={`w-2 h-2 rounded-full ${
@@ -2617,10 +2622,10 @@ export default function App() {
 
   const renderOperations = () => {
     const columns: { status: TaskStatus; label: string; border: string; bg: string; text: string }[] = [
-      { status: 'queued', label: 'BACKLOG QUEUE', border: 'border-slate-800/40', bg: 'bg-[#030604]', text: 'text-slate-400' },
-      { status: 'in-progress', label: 'IN PROGRESS', border: 'border-blue-950/40', bg: 'bg-[#030604]', text: 'text-blue-400' },
-      { status: 'review', label: 'REVIEW AUDIT', border: 'border-amber-950/40', bg: 'bg-[#030604]', text: 'text-amber-400' },
-      { status: 'done', label: 'DONE COMPLETED', border: 'border-emerald-950/40', bg: 'bg-[#030604]', text: 'text-[#00ff66]' }
+      { status: 'queued', label: 'BACKLOG QUEUE', border: 'border-slate-600', bg: 'bg-[#030604]', text: 'text-slate-200 font-bold' },
+      { status: 'in-progress', label: 'IN PROGRESS', border: 'border-blue-600', bg: 'bg-[#030604]', text: 'text-blue-200 font-bold' },
+      { status: 'review', label: 'REVIEW AUDIT', border: 'border-amber-600', bg: 'bg-[#030604]', text: 'text-amber-200 font-bold' },
+      { status: 'done', label: 'DONE COMPLETED', border: 'border-emerald-600', bg: 'bg-[#030604]', text: 'text-[#00ff66] font-bold' }
     ];
 
     return (
@@ -2639,7 +2644,7 @@ export default function App() {
               value={newTaskTitle}
               onChange={(e) => setNewTaskTitle(e.target.value)}
               placeholder="e.g. Test researcher output"
-              className="w-full text-xs rounded-lg bg-black border border-emerald-900/60 px-3 py-2 text-slate-200 placeholder-emerald-800/50 focus:outline-none focus:border-emerald-500 font-sans"
+              className="w-full text-xs rounded-lg bg-black border border-emerald-900/60 px-3 py-2 text-slate-200 placeholder-emerald-800/50 focus:outline-none hover:border-emerald-500 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-all font-sans"
             />
           </div>
           <div className="space-y-1 md:col-span-1">
@@ -2649,7 +2654,7 @@ export default function App() {
               value={newTaskDetail}
               onChange={(e) => setNewTaskDetail(e.target.value)}
               placeholder="e.g. Ensure we fetch the latest models"
-              className="w-full text-xs rounded-lg bg-black border border-emerald-900/60 px-3 py-2 text-slate-200 placeholder-emerald-800/50 focus:outline-none focus:border-emerald-500 font-sans"
+              className="w-full text-xs rounded-lg bg-black border border-emerald-900/60 px-3 py-2 text-slate-200 placeholder-emerald-800/50 focus:outline-none hover:border-emerald-500 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-all font-sans"
             />
           </div>
           <div className="grid grid-cols-2 gap-2 md:col-span-1">
@@ -2728,7 +2733,7 @@ export default function App() {
                           key={task.id}
                           draggable
                           onDragStart={(e) => handleDragStart(e, task.id)}
-                          className={`bg-[#0b1c11] border-2 border-emerald-800 hover:border-emerald-400 p-3.5 rounded-xl transition-all duration-300 relative group cursor-grab active:cursor-grabbing shadow-sm hover:shadow-md ${priorityBorder}`}
+                          className={`bg-[#0b1c11] border-2 ${col.border} hover:border-white p-3.5 rounded-xl transition-all duration-300 relative group cursor-grab active:cursor-grabbing shadow-sm hover:shadow-md ${priorityBorder}`}
                         >
                           <div className="flex justify-between items-start gap-2 mb-1.5">
                             <span className="text-slate-200 font-black font-sans text-xs leading-snug line-clamp-2">{task.title}</span>
@@ -2820,7 +2825,9 @@ export default function App() {
                 <div>
                   <div className="flex items-center justify-between mb-4 pb-3 border-b border-emerald-950/60">
                     <div className="flex items-center gap-3">
-                      <span className="text-2xl select-none">{agent.icon}</span>
+                      <span className="text-2xl select-none">
+                        {agent.icon.startsWith('/') ? <img src={agent.icon} alt={agent.name} className="w-8 h-8 inline-block object-cover rounded-full" /> : agent.icon}
+                      </span>
                       <div className="space-y-0.5">
                         <span className="font-mono font-black text-sm text-white">{agent.name}</span>
                         <span className="text-[8px] font-mono text-emerald-500 uppercase tracking-widest block font-extrabold">CORE_INSTANCE_{agent.id.toUpperCase()}</span>
@@ -3395,7 +3402,9 @@ export default function App() {
                           : 'border-emerald-950 bg-[#091510]/50 hover:bg-[#0c1e16] hover:border-emerald-900/60'
                     }`}
                   >
-                    <div className={`text-2xl shrink-0 filter grayscale-0 opacity-100 transition-all group-data-[collapsible=icon]:text-xl`}>{agent.icon}</div>
+                    <div className={`text-2xl shrink-0 filter grayscale-0 opacity-100 transition-all group-data-[collapsible=icon]:text-xl`}>
+                      {agent.icon.startsWith('/') ? <img src={agent.icon} alt={agent.name} className="w-8 h-8 object-cover rounded-full" /> : agent.icon}
+                    </div>
                     
                     <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
                       <div className="flex items-center justify-between gap-1">
@@ -3497,7 +3506,14 @@ export default function App() {
               {chatTab === 'global' ? (
                 <>
                   {/* Chat log & outputs area */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              <div 
+                className="flex-1 overflow-y-auto p-6 space-y-6"
+                onScroll={(e) => {
+                  const target = e.target as HTMLDivElement;
+                  const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 100;
+                  setIsAutoScrollEnabled(isAtBottom);
+                }}
+              >
                 {messages.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center p-8 max-w-lg mx-auto">
                     <div className="relative mb-6">
@@ -3643,7 +3659,7 @@ export default function App() {
                   >
                     {agents.map(a => (
                       <option key={a.id} value={a.id} className="bg-[#020503] text-emerald-400">
-                        {a.icon} {a.name} ({a.model})
+                        {a.name} ({a.model})
                       </option>
                     ))}
                   </select>
@@ -3657,7 +3673,13 @@ export default function App() {
                     <div className="relative mb-6">
                       <div className="absolute inset-0 bg-emerald-500/10 blur-2xl rounded-full scale-125 animate-pulse"></div>
                       <div className="relative w-16 h-16 rounded-2xl border border-emerald-400/40 bg-[#020503] flex items-center justify-center shadow-lg shadow-emerald-500/15">
-                        <span className="text-3xl">{agents.find(a => a.id === privateAgentId)?.icon || '🤖'}</span>
+                        <span className="text-3xl">
+                          {(() => {
+                            const agent = agents.find(a => a.id === privateAgentId);
+                            if (!agent) return '🤖';
+                            return agent.icon.startsWith('/') ? <img src={agent.icon} alt={agent.name} className="w-16 h-16 object-cover rounded-2xl" /> : agent.icon;
+                          })()}
+                        </span>
                       </div>
                     </div>
                     <h3 className="font-sans font-bold text-xl text-white mb-2">Direct Link: {agents.find(a => a.id === privateAgentId)?.name}</h3>
@@ -3986,7 +4008,9 @@ export default function App() {
                           
                           return (
                             <div key={agent.id} className="space-y-1">
-                              <label className="block text-[11px] text-emerald-500/70 font-bold uppercase">{agent.icon} {agent.name}</label>
+                              <label className="block text-[11px] text-emerald-500/70 font-bold uppercase">
+                                {agent.icon.startsWith('/') ? <img src={agent.icon} alt={agent.name} className="w-4 h-4 inline-block object-cover rounded-full mr-1" /> : agent.icon + " "} {agent.name}
+                              </label>
                               <select
                                 value={isCustom ? 'custom' : (agentModels[agent.id] || '')}
                                 onChange={(e) => {
