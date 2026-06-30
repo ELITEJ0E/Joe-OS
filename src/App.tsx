@@ -2459,7 +2459,7 @@ export default function App() {
             ].map((kpi, idx) => (
               <div 
                 key={idx} 
-                className="min-w-[200px] sm:min-w-[240px] flex-1 snap-start p-4 rounded-xl border border-emerald-950/80 bg-[#030604] hover:border-emerald-500/40 transition-all duration-300 relative group overflow-hidden"
+                className="min-w-[200px] sm:min-w-[240px] flex-1 snap-start p-4 rounded-xl border-2 border-emerald-800 bg-[#041208] hover:border-emerald-400 hover:bg-[#071b0c] transition-all duration-300 relative group overflow-hidden shadow-lg shadow-emerald-950/20"
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-500/70 font-bold">{kpi.label}</span>
@@ -2485,14 +2485,14 @@ export default function App() {
           </h3>
           <div className="flex gap-4 overflow-x-auto pb-2 pt-1 no-scrollbar scroll-smooth snap-x">
             {alerts.map((alert) => {
-              let alertClass = "border-emerald-500/20 bg-emerald-950/10 text-emerald-300 hover:border-emerald-500/40";
-              let badgeClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/25";
+              let alertClass = "border-emerald-500 bg-emerald-950/45 text-emerald-300 hover:border-emerald-400 hover:bg-emerald-950/60";
+              let badgeClass = "bg-emerald-500/20 text-emerald-300 border border-emerald-400/40";
               if (alert.severity === 'critical') {
-                alertClass = "border-rose-500/20 bg-rose-950/10 text-rose-300 hover:border-rose-500/40";
-                badgeClass = "bg-rose-500/10 text-rose-400 border border-rose-500/25 animate-pulse";
+                alertClass = "border-rose-500 bg-rose-950/45 text-rose-300 hover:border-rose-400 hover:bg-rose-950/60";
+                badgeClass = "bg-rose-500/20 text-rose-300 border border-rose-400/40 animate-pulse";
               } else if (alert.severity === 'warning') {
-                alertClass = "border-amber-500/20 bg-amber-950/10 text-amber-300 hover:border-amber-500/40";
-                badgeClass = "bg-amber-500/10 text-amber-400 border border-amber-500/25";
+                alertClass = "border-amber-500 bg-amber-950/45 text-amber-300 hover:border-amber-400 hover:bg-amber-950/60";
+                badgeClass = "bg-amber-500/20 text-amber-300 border border-amber-400/40";
               }
               
               const handleAlertClick = () => {
@@ -2509,7 +2509,7 @@ export default function App() {
                 <div 
                   key={alert.id} 
                   onClick={handleAlertClick}
-                  className={`min-w-[260px] sm:min-w-[300px] flex-1 snap-start p-4 rounded-xl border ${alertClass} cursor-pointer transition-all duration-300 flex flex-col justify-between`}
+                  className={`min-w-[260px] sm:min-w-[300px] flex-1 snap-start p-4 rounded-xl border-2 ${alertClass} cursor-pointer transition-all duration-300 flex flex-col justify-between shadow-lg`}
                 >
                   <div className="flex justify-between items-start gap-2 mb-2">
                     <span className={`text-[8px] font-mono font-bold tracking-widest uppercase px-2 py-0.5 rounded ${badgeClass}`}>
@@ -2549,12 +2549,12 @@ export default function App() {
                     key={agent.id}
                     onDoubleClick={() => handleAgentCardClick(agent)}
                     onClick={() => handleAgentCardClick(agent)}
-                    className={`p-4 rounded-xl border transition-all duration-300 bg-[#030604] cursor-pointer group flex flex-col justify-between relative overflow-hidden h-[155px] ${
+                    className={`p-4 rounded-xl border-2 transition-all duration-300 cursor-pointer group flex flex-col justify-between relative overflow-hidden h-[155px] ${
                       agent.enabled === false
-                        ? 'border-emerald-950/35 opacity-40 hover:opacity-60'
+                        ? 'border-emerald-950 bg-[#020503]/50 opacity-40 hover:opacity-60'
                         : isActive
-                          ? 'border-emerald-400 shadow-[0_0_15px_rgba(0,255,102,0.15)] ring-1 ring-emerald-500/20'
-                          : 'border-emerald-950/80 hover:border-emerald-500/40'
+                          ? 'border-emerald-400 bg-[#092613] shadow-[0_0_15px_rgba(0,255,102,0.2)] ring-1 ring-emerald-400/30'
+                          : 'border-emerald-800 bg-[#05140b] hover:border-emerald-400 hover:bg-[#071b0e]'
                     }`}
                   >
                     <div>
@@ -2630,7 +2630,7 @@ export default function App() {
           <p className="text-emerald-500/60 text-xs font-mono uppercase tracking-wider mt-1">KANBAN COMPILATION LOG & AD-HOC TASK DISPATCHER</p>
         </div>
 
-        <form onSubmit={handleCreateTask} className="p-4 rounded-xl border border-emerald-950/80 bg-[#030604] grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+        <form onSubmit={handleCreateTask} className="p-4 rounded-xl border-2 border-emerald-800 bg-[#041208] grid grid-cols-1 md:grid-cols-4 gap-4 items-end shadow-md">
           <div className="space-y-1 md:col-span-1">
             <label className="text-[9px] font-mono text-emerald-500 font-bold block uppercase tracking-wider">TASK TITLE</label>
             <input
@@ -2697,7 +2697,7 @@ export default function App() {
                 key={col.status}
                 onDragOver={handleDragOver}
                 onDrop={(e) => handleDrop(e, col.status)}
-                className={`rounded-xl border border-emerald-950/50 p-4 ${theme === 'oled' ? 'bg-[#000000]' : 'bg-[#050c08]'} flex flex-col min-h-[300px]`}
+                className={`rounded-xl border-2 border-emerald-800/80 p-4 ${theme === 'oled' ? 'bg-[#000000]' : 'bg-[#06150c]'} flex flex-col min-h-[300px] shadow-md shadow-emerald-950/10`}
               >
                 <div className="flex items-center justify-between pb-3 border-b border-emerald-900/35 mb-4 shrink-0 font-mono">
                   <span className={`text-[10px] font-black tracking-widest ${col.text}`}>{col.label}</span>
@@ -2728,7 +2728,7 @@ export default function App() {
                           key={task.id}
                           draggable
                           onDragStart={(e) => handleDragStart(e, task.id)}
-                          className={`bg-[#030604] border border-emerald-950 hover:border-emerald-500/40 p-3.5 rounded-xl transition-all duration-300 relative group cursor-grab active:cursor-grabbing ${priorityBorder}`}
+                          className={`bg-[#0b1c11] border-2 border-emerald-800 hover:border-emerald-400 p-3.5 rounded-xl transition-all duration-300 relative group cursor-grab active:cursor-grabbing shadow-sm hover:shadow-md ${priorityBorder}`}
                         >
                           <div className="flex justify-between items-start gap-2 mb-1.5">
                             <span className="text-slate-200 font-black font-sans text-xs leading-snug line-clamp-2">{task.title}</span>
@@ -2809,12 +2809,12 @@ export default function App() {
             return (
               <div
                 key={agent.id}
-                className={`p-5 rounded-2xl border transition-all duration-300 bg-[#030604] flex flex-col justify-between relative overflow-hidden ${
+                className={`p-5 rounded-2xl border-2 transition-all duration-300 flex flex-col justify-between relative overflow-hidden ${
                   agent.enabled === false
-                    ? 'border-emerald-950/35 opacity-40'
+                    ? 'border-emerald-950 bg-[#020503]/50 opacity-40'
                     : isActive
-                      ? 'border-emerald-400 shadow-[0_0_15px_rgba(0,255,102,0.15)] ring-1 ring-emerald-500/20'
-                      : 'border-emerald-950/80 hover:border-emerald-500/40'
+                      ? 'border-emerald-400 bg-[#092613] shadow-[0_0_15px_rgba(0,255,102,0.2)] ring-1 ring-emerald-400/30'
+                      : 'border-emerald-800 bg-[#05140b] hover:border-emerald-400 hover:bg-[#071b0e]'
                 }`}
               >
                 <div>
@@ -3942,7 +3942,7 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
                 {/* Section: Agent Configuration */}
-                <div className="p-6 rounded-2xl border border-emerald-950 bg-[#080d0a] space-y-4">
+                <div className="p-6 rounded-2xl border-2 border-emerald-800 bg-[#05140b] space-y-4">
                   <div className="flex items-center gap-2 pb-2 border-b border-emerald-950">
                     <Terminal size={16} className="text-emerald-400" />
                     <h3 className="font-display font-semibold text-sm text-white">Model Configuration</h3>
@@ -4040,7 +4040,7 @@ export default function App() {
                 </div>
 
                 {/* Section: Cloud Engine Settings */}
-                <div className="p-6 rounded-2xl border border-emerald-950 bg-[#080d0a] space-y-4">
+                <div className="p-6 rounded-2xl border-2 border-emerald-800 bg-[#05140b] space-y-4">
                   <div className="flex items-center gap-2 pb-2 border-b border-emerald-950">
                     <Sparkles size={16} className="text-emerald-400" />
                     <h3 className="font-display font-semibold text-sm text-white">Cloud API Keys</h3>
