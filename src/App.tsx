@@ -1065,7 +1065,7 @@ export default function App() {
   // Scroll to bottom helper
   useEffect(() => {
     if (isAutoScrollEnabled) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
     }
   }, [messages, isAutoScrollEnabled]);
 
@@ -3510,7 +3510,7 @@ export default function App() {
                 className="flex-1 overflow-y-auto p-6 space-y-6"
                 onScroll={(e) => {
                   const target = e.target as HTMLDivElement;
-                  const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 100;
+                  const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 200;
                   setIsAutoScrollEnabled(isAtBottom);
                 }}
               >
